@@ -15,16 +15,16 @@ export default function TopMenu() {
 
   return (
     <>
-      {/* DESKTOP/TABLET: klasické ľavé menu */}
-      <aside className="hidden md:block fixed left-0 top-0 bottom-0 w-64 overflow-y-auto p-6">
+      {/* ================= DESKTOP ================= */}
+      <aside className="hidden lg:block fixed left-0 top-0 bottom-0 w-64 overflow-y-auto p-6">
         <nav className="space-y-6">
           {links.map(l => (
             <NavLink
               key={l.to}
               to={l.to}
               className={({ isActive }) =>
-                `flex items-center gap-4 text-4xl font-bold underline decoration-2 ${
-                  isActive ? 'opacity-100' : 'opacity-90 hover:opacity-100'
+                `flex items-center gap-4 text-4xl font-bold underline ${
+                  isActive ? 'opacity-100' : 'opacity-80 hover:opacity-100'
                 }`
               }
             >
@@ -35,34 +35,33 @@ export default function TopMenu() {
         </nav>
       </aside>
 
-      {/* MOBIL: plávajúce tlačidlo + drawer menu */}
-      <div className="md:hidden">
-        {/* tlačidlo */}
+      {/* ================= MOBILE / TABLET ================= */}
+      <div className="lg:hidden">
+        {/* hamburger */}
         <button
           onClick={() => setOpen(true)}
-          className="fixed left-4 top-4 z-[60] border bg-white rounded-2xl px-3 py-2 shadow"
-          aria-label="Otvoriť menu"
+          className="fixed left-4 top-4 z-[60] bg-white border rounded-xl px-3 py-2 shadow"
         >
-          <span className="text-xl">☰</span>
+          ☰
         </button>
 
         {/* overlay */}
         {open && (
           <div
-            className="fixed inset-0 z-[59] bg-black/30"
+            className="fixed inset-0 bg-black/30 z-[59]"
             onClick={() => setOpen(false)}
           />
         )}
 
         {/* drawer */}
         <div
-          className={`fixed left-0 top-0 bottom-0 z-[60] w-72 bg-white border-r p-5 transform transition-transform ${
+          className={`fixed left-0 top-0 bottom-0 w-72 bg-white border-r z-[60] p-5 transform transition-transform ${
             open ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex justify-between items-center mb-4">
             <div className="text-lg font-bold">Menu</div>
-            <button className="text-sm underline" onClick={() => setOpen(false)}>
+            <button onClick={() => setOpen(false)} className="underline text-sm">
               Zavrieť
             </button>
           </div>
@@ -75,7 +74,7 @@ export default function TopMenu() {
                 onClick={() => setOpen(false)}
                 className={({ isActive }) =>
                   `flex items-center gap-3 text-xl font-semibold underline ${
-                    isActive ? 'opacity-100' : 'opacity-90'
+                    isActive ? 'opacity-100' : 'opacity-80'
                   }`
                 }
               >
@@ -86,9 +85,6 @@ export default function TopMenu() {
           </nav>
         </div>
       </div>
-
-      {/* odsadenie obsahu, aby nebol pod sidebarom na desktop/tablet */}
-      <div className="md:pl-64" />
     </>
   )
 }

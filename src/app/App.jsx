@@ -1,6 +1,6 @@
 import { Routes, Route } from 'react-router-dom'
 import RequireAuth from '../components/RequireAuth'
-import VercelLayout from '../components/VercelLayout'
+import TopMenu from '../components/TopMenu'
 import Login from '../pages/Login'
 
 import Predaj from '../pages/Predaj.jsx'
@@ -12,25 +12,22 @@ import Sklad from '../pages/Sklad.jsx'
 
 export default function App() {
   return (
-    <Routes>
-      {/* Login bez menu */}
-      <Route path="/login" element={<Login />} />
+    <div>
+      <TopMenu />
 
-      {/* Všetko ostatné je v Layoute + vyžaduje login */}
-      <Route
-        element={
-          <RequireAuth>
-            <VercelLayout />
-          </RequireAuth>
-        }
-      >
-        <Route path="/" element={<Predaj />} />
-        <Route path="/zakaznici" element={<Zakaznici />} />
-        <Route path="/produkty" element={<Produkty />} />
-        <Route path="/naskladnit" element={<Naskladnit />} />
-        <Route path="/historia" element={<Historia />} />
-        <Route path="/sklad" element={<Sklad />} />
-      </Route>
-    </Routes>
+      {/* odsadenie iba na desktop (lg+) */}
+      <div className="lg:ml-64">
+        <Routes>
+          <Route path="/login" element={<Login />} />
+
+          <Route path="/" element={<RequireAuth><Predaj /></RequireAuth>} />
+          <Route path="/zakaznici" element={<RequireAuth><Zakaznici /></RequireAuth>} />
+          <Route path="/produkty" element={<RequireAuth><Produkty /></RequireAuth>} />
+          <Route path="/naskladnit" element={<RequireAuth><Naskladnit /></RequireAuth>} />
+          <Route path="/historia" element={<RequireAuth><Historia /></RequireAuth>} />
+          <Route path="/sklad" element={<RequireAuth><Sklad /></RequireAuth>} />
+        </Routes>
+      </div>
+    </div>
   )
 }
