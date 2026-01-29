@@ -1,4 +1,30 @@
-import {useEffect,useState} from 'react';import {Navigate} from 'react-router-dom';import {getSession} from '../app/auth';
-export default function RequireAuth({children}){const[l,setL]=useState(true);const[s,setS]=useState(null);
-useEffect(()=>{getSession().then(x=>{setS(x);setL(false)})},[]);if(l)return <div className="p-4">Načítavam…</div>;
-if(!s)return <Navigate to="/login" replace/>;return children;}
+import { useEffect, useState } from 'react'
+import { Navigate, useLocation } from 'react-router-dom'
+import { supabase } from '../services/supabase'
+
+export default function RequireAuth({ children }) {
+  const [checking, setChecking] = useState(true)
+  const [ok, setOk] = useState(false)
+  const location = useLocation()
+
+  useEffect(() => {
+    let alive = true
+
+    const run = async () => {
+      const { data, error } = await supabase.auth.getSession()
+      if (!alive) return
+      setOk(!error && !!data?.session)
+      setChecking(false)
+    }
+
+    run()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  if (checking) return null
+  if (!ok) return <Navigate to="/login" replace state={{ from: location }} />
+
+  return children
+}

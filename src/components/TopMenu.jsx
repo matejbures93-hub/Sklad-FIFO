@@ -1,7 +1,7 @@
-import { NavLink } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
 
-const links = [
+const items = [
   { to: '/', label: 'Predaj', icon: '⚡' },
   { to: '/zakaznici', label: 'Zákazníci', icon: '👥' },
   { to: '/produkty', label: 'Produkty', icon: '📦' },
@@ -10,125 +10,91 @@ const links = [
   { to: '/sklad', label: 'Sklad', icon: '🏬' },
 ]
 
-function useIsDesktop(minWidth = 1024) {
-  const [isDesktop, setIsDesktop] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth >= minWidth : false
+function LinkItem({ to, icon, label, onClick }) {
+  return (
+    <NavLink
+      to={to}
+      onClick={onClick}
+      className={({ isActive }) =>
+        `flex items-center gap-3 rounded-xl px-3 py-3 text-lg font-semibold border bg-white
+         ${isActive ? 'border-black' : 'border-gray-200'}`
+      }
+    >
+      <span className="text-xl">{icon}</span>
+      <span>{label}</span>
+    </NavLink>
   )
-
-  useEffect(() => {
-    const onResize = () => setIsDesktop(window.innerWidth >= minWidth)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [minWidth])
-
-  return isDesktop
 }
 
 export default function TopMenu() {
-  const isDesktop = useIsDesktop(1024) // 1024px = "desktop"
   const [open, setOpen] = useState(false)
+  const location = useLocation()
 
-  // ak prejdeš na desktop, zavri drawer
+  // po zmene stránky zavri mobile menu
   useEffect(() => {
-    if (isDesktop) setOpen(false)
-  }, [isDesktop])
+    setOpen(false)
+  }, [location.pathname])
 
-  const linkStyle = ({ isActive }) => ({
-    display: 'flex',
-    alignItems: 'center',
-    gap: '14px',
-    fontSize: isDesktop ? '44px' : '22px',
-    fontWeight: 800,
-    textDecoration: 'underline',
-    opacity: isActive ? 1 : 0.9,
-    padding: isDesktop ? '8px 0' : '8px 0',
-  })
+  // keď je menu otvorené, stopni scroll na pozadí
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    if (open) document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [open])
 
-  if (isDesktop) {
-    // DESKTOP: ľavý panel (scrolluje spolu so stránkou)
-    return (
-      <div style={{ padding: '24px 24px 0 24px' }}>
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
-          {links.map((l) => (
-            <NavLink key={l.to} to={l.to} style={linkStyle}>
-              <span style={{ fontSize: '44px' }}>{l.icon}</span>
-              <span>{l.label}</span>
-            </NavLink>
-          ))}
-        </nav>
-      </div>
-    )
-  }
-
-  // MOBILE / TABLET: hamburger + drawer
   return (
     <>
+      {/* ✅ MOBILE SPACER: aby hamburger nikdy neprekrýval obsah */}
+      <div className="lg:hidden h-16" />
+
+      {/* DESKTOP: ľavý panel (fixný) */}
+      <aside className="hidden lg:flex lg:fixed lg:left-0 lg:top-0 lg:bottom-0 lg:w-64 lg:p-4 lg:z-40">
+        <div className="w-full border rounded-2xl bg-white/70 backdrop-blur p-3 space-y-2">
+          <div className="text-sm font-semibold opacity-70 px-1 mb-1">Menu</div>
+          {items.map(i => (
+            <LinkItem key={i.to} {...i} />
+          ))}
+        </div>
+      </aside>
+
+      {/* MOBILE: hamburger tlačidlo (fixed, mimo textu) */}
       <button
+        className="lg:hidden fixed left-3 top-3 z-[60] w-12 h-12 rounded-2xl border bg-white/90 backdrop-blur flex items-center justify-center text-xl shadow"
         onClick={() => setOpen(true)}
-        style={{
-          position: 'fixed',
-          left: 12,
-          top: 12,
-          zIndex: 9999,
-          padding: '10px 14px',
-          borderRadius: 14,
-          border: '1px solid #ddd',
-          background: '#fff',
-        }}
         aria-label="Otvoriť menu"
       >
         ☰
       </button>
 
+      {/* MOBILE: overlay + drawer (zľava) */}
       {open && (
-        <div
-          onClick={() => setOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.25)',
-            zIndex: 9998,
-          }}
-        />
-      )}
+        <div className="lg:hidden fixed inset-0 z-[70]">
+          {/* pozadie */}
+          <button
+            className="absolute inset-0 bg-black/30"
+            onClick={() => setOpen(false)}
+            aria-label="Zavrieť menu"
+          />
 
-      <div
-        style={{
-          position: 'fixed',
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: 280,
-          background: '#fff',
-          borderRight: '1px solid #ddd',
-          padding: 16,
-          zIndex: 9999,
-          transform: open ? 'translateX(0)' : 'translateX(-110%)',
-          transition: 'transform 180ms ease',
-          overflowY: 'auto',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <div style={{ fontSize: 18, fontWeight: 800 }}>Menu</div>
-          <button onClick={() => setOpen(false)} style={{ textDecoration: 'underline', border: 'none', background: 'transparent' }}>
-            Zavrieť
-          </button>
+          {/* drawer */}
+          <div className="absolute left-0 top-0 bottom-0 w-[78%] max-w-xs bg-white shadow-2xl p-4 overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-base font-semibold">Menu</div>
+              <button className="text-sm underline" onClick={() => setOpen(false)}>
+                Zavrieť
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {items.map(i => (
+                <LinkItem key={i.to} {...i} onClick={() => setOpen(false)} />
+              ))}
+            </div>
+          </div>
         </div>
-
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {links.map((l) => (
-            <NavLink
-              key={l.to}
-              to={l.to}
-              onClick={() => setOpen(false)}
-              style={linkStyle}
-            >
-              <span style={{ fontSize: 26 }}>{l.icon}</span>
-              <span>{l.label}</span>
-            </NavLink>
-          ))}
-        </nav>
-      </div>
+      )}
     </>
   )
 }

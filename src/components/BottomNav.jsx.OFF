@@ -1,7 +1,7 @@
 import { Routes, Route } from 'react-router-dom'
-import RequireAuth from '../components/RequireAuth'
-import TopMenu from '../components/TopMenu'
-import Login from '../pages/Login'
+import RequireAuth from './RequireAuth.jsx'
+import TopMenu from './TopMenu.jsx'
+import Login from '../pages/Login.jsx'
 
 import Predaj from '../pages/Predaj.jsx'
 import Zakaznici from '../pages/Zakaznici.jsx'

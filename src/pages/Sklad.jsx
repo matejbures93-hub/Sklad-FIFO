@@ -36,12 +36,14 @@ export default function Sklad() {
   const [msg, setMsg] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // UI
   const [q, setQ] = useState('')
-  const [skladFilter, setSkladFilter] = useState('') // nazov skladu
-  const [onlyCritical, setOnlyCritical] = useState(false) // oranž+červ
-  const [showExpired, setShowExpired] = useState(true) // zobrazovať expirované
-  const [openKey, setOpenKey] = useState('') // produkt_key rozbalený
+  const [letter, setLetter] = useState('')
+  const [skladFilter, setSkladFilter] = useState('')
+  const [onlyCritical, setOnlyCritical] = useState(false)
+  const [showExpired, setShowExpired] = useState(true)
+  const [openKey, setOpenKey] = useState('')
+
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
   const load = async () => {
     setLoading(true)
@@ -78,12 +80,17 @@ export default function Sklad() {
 
   const grouped = useMemo(() => {
     const query = q.trim().toLowerCase()
+    const pick = (letter || '').trim().toUpperCase()
 
     const filtered = rows.filter(r => {
-      const nazov = (r.produkty?.nazov ?? '').toLowerCase()
+      const nazovRaw = r.produkty?.nazov ?? ''
+      const nazov = nazovRaw.toLowerCase()
+      const nazovUpper = nazovRaw.toUpperCase()
+
       const skladN = r.sklady?.nazov ?? ''
       const st = expStatus(r.expiracia)
 
+      if (pick && !nazovUpper.startsWith(pick)) return false
       if (query && !nazov.includes(query)) return false
       if (skladFilter && skladN !== skladFilter) return false
       if (!showExpired && st.label === 'EXPIROVANÉ') return false
@@ -157,7 +164,6 @@ export default function Sklad() {
       ),
     }))
 
-    // kritické prvé + najbližší EXP
     arr.sort((a, b) => {
       const ac = a.hasCritical ? 0 : 1
       const bc = b.hasCritical ? 0 : 1
@@ -169,7 +175,7 @@ export default function Sklad() {
     })
 
     return arr
-  }, [rows, q, skladFilter, onlyCritical, showExpired])
+  }, [rows, q, letter, skladFilter, onlyCritical, showExpired])
 
   const topSummary = useMemo(() => {
     const totalProducts = grouped.length
@@ -178,166 +184,171 @@ export default function Sklad() {
     return { totalProducts, totalQty, criticalCount }
   }, [grouped])
 
-  // ✅ keď meníš filtre/hľadanie, zavri otvorený detail
   useEffect(() => {
     setOpenKey('')
-  }, [q, skladFilter, onlyCritical, showExpired])
+  }, [q, letter, skladFilter, onlyCritical, showExpired])
 
   return (
-    <div className="max-w-md mx-auto p-4 pt-8 pb-4">
-      {/* HORE: len nadpis + obnoviť */}
+    <div className="max-w-md mx-auto p-4 pb-24">
       <div className="flex items-center justify-between mb-3">
         <h1 className="text-2xl font-bold">Sklad</h1>
         <button className="text-sm underline" onClick={load}>Obnoviť</button>
       </div>
 
-      {/* Spodný FIX panel (vždy dole na obrazovke) */}
-      <div className="fixed left-0 right-0 bottom-0 z-50">
-        <div className="max-w-md mx-auto px-4 pb-4">
-          <div className="border rounded-2xl bg-white shadow-lg">
-            {/* malý “úchyt” */}
-            <div className="pt-2">
-              <div className="mx-auto w-12 h-1 rounded-full bg-gray-200" />
-            </div>
+      {msg && <div className="text-sm border rounded-xl p-3 mb-3 bg-white">{msg}</div>}
+      {loading && <div className="text-sm opacity-70 mb-2">Načítavam…</div>}
 
-            <div className="p-3">
-              {msg && <div className="border rounded-xl p-3 mb-3 bg-white">{msg}</div>}
-              {loading && <div className="text-sm opacity-70 mb-2">Načítavam…</div>}
+      {/* FILTRE = normálne v toku stránky (žiadne sticky/fixed => nepláva) */}
+      <div className="border rounded-2xl bg-white shadow-sm p-3 mb-3">
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-1">
+            {letters.map(l => (
+              <button
+                key={l}
+                className={`px-2 py-1 rounded-lg text-sm font-semibold border ${
+                  letter === l ? 'bg-black text-white' : 'bg-white'
+                }`}
+                onClick={() => setLetter(l)}
+              >
+                {l}
+              </button>
+            ))}
+            <button
+              className="px-2 py-1 rounded-lg text-sm border bg-white"
+              onClick={() => setLetter('')}
+              title="Zrušiť písmeno"
+            >
+              ✕
+            </button>
+          </div>
 
-              {/* Ovládanie */}
-              <div className="space-y-2 mb-3">
-                <input
-                  className="w-full border rounded-xl px-3 py-2"
-                  placeholder="🔍 Vyhľadať produkt…"
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                />
+          <input
+            className="w-full border rounded-xl px-3 py-2"
+            placeholder="🔍 Vyhľadať produkt…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
 
-                <div className="flex gap-2">
-                  <select
-                    className="flex-1 border rounded-xl px-3 py-2"
-                    value={skladFilter}
-                    onChange={(e) => setSkladFilter(e.target.value)}
-                  >
-                    <option value="">Všetky sklady</option>
-                    {skladyOptions.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
+          <div className="flex gap-2">
+            <select
+              className="flex-1 border rounded-xl px-3 py-2"
+              value={skladFilter}
+              onChange={(e) => setSkladFilter(e.target.value)}
+            >
+              <option value="">Všetky sklady</option>
+              {skladyOptions.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
 
-                  <button
-                    className={`px-3 py-2 rounded-xl border text-sm font-semibold ${onlyCritical ? 'bg-orange-50' : 'bg-white'}`}
-                    onClick={() => setOnlyCritical(v => !v)}
-                    title="Zobrazí len oranžové + červené"
-                  >
-                    Kritické
-                  </button>
+            <button
+              className={`px-3 py-2 rounded-xl border text-sm font-semibold ${
+                onlyCritical ? 'bg-orange-50' : 'bg-white'
+              }`}
+              onClick={() => setOnlyCritical(v => !v)}
+            >
+              Kritické
+            </button>
 
-                  <button
-                    className={`px-3 py-2 rounded-xl border text-sm font-semibold ${showExpired ? 'bg-white' : 'bg-gray-50'}`}
-                    onClick={() => setShowExpired(v => !v)}
-                    title="Zapnúť/vypnúť expirované"
-                  >
-                    EXP
-                  </button>
-                </div>
+            <button
+              className={`px-3 py-2 rounded-xl border text-sm font-semibold ${
+                showExpired ? 'bg-white' : 'bg-gray-50'
+              }`}
+              onClick={() => setShowExpired(v => !v)}
+            >
+              EXP
+            </button>
+          </div>
 
-                <div className="text-xs opacity-70">
-                  Produkty: <b>{topSummary.totalProducts}</b> · Spolu ks: <b>{topSummary.totalQty}</b> · Kritické: <b>{topSummary.criticalCount}</b>
-                </div>
-              </div>
+          <div className="text-xs opacity-70">
+            Produkty: <b>{topSummary.totalProducts}</b> · Spolu ks: <b>{topSummary.totalQty}</b> · Kritické: <b>{topSummary.criticalCount}</b>
+          </div>
+        </div>
+      </div>
 
-              {/* Zoznam – scroll v rámci panelu */}
-              <div className="max-h-[55vh] overflow-y-auto pr-1">
-                {grouped.length === 0 && !loading ? (
-                  <div className="text-sm opacity-70">Nič sa nenašlo.</div>
-                ) : (
-                  <div className="space-y-3">
-                    {grouped.map(g => {
-                      const st = g.hasExpired
-                        ? { dot: 'bg-red-500', label: 'EXPIROVANÉ' }
-                        : g.hasCritical
-                          ? { dot: 'bg-orange-500', label: 'Do 2 mesiacov' }
-                          : { dot: 'bg-green-500', label: 'OK' }
+      {/* ZOZNAM */}
+      <div className="space-y-3">
+        {grouped.length === 0 && !loading ? (
+          <div className="text-sm opacity-70">Nič sa nenašlo.</div>
+        ) : (
+          grouped.map(g => {
+            const st = g.hasExpired
+              ? { dot: 'bg-red-500', label: 'EXPIROVANÉ' }
+              : g.hasCritical
+                ? { dot: 'bg-orange-500', label: 'Do 2 mesiacov' }
+                : { dot: 'bg-green-500', label: 'OK' }
 
-                      const isOpen = openKey === g.key
+            const isOpen = openKey === g.key
 
-                      return (
-                        <div key={g.key} className="border rounded-2xl p-4 bg-white">
-                          <button className="w-full text-left" onClick={() => setOpenKey(isOpen ? '' : g.key)}>
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="text-lg font-bold truncate">{g.produkt_nazov}</div>
-                                <div className="text-sm opacity-70 mt-1">
-                                  Spolu: <b>{g.totalQty} ks</b> · Najbližší EXP: <b>{g.nearestExp ? formatExp(g.nearestExp) : '—'}</b>
-                                </div>
-                                <div className="text-sm opacity-70 mt-1">
-                                  Hodnota: <b>{g.valueKnown ? fmtEur(g.totalValue) : '—'}</b>
-                                </div>
-                              </div>
+            return (
+              <div key={g.key} className="border rounded-2xl p-4 bg-white">
+                <button className="w-full text-left" onClick={() => setOpenKey(isOpen ? '' : g.key)}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-lg font-bold truncate">{g.produkt_nazov}</div>
+                      <div className="text-sm opacity-70 mt-1">
+                        Spolu: <b>{g.totalQty} ks</b> · Najbližší EXP: <b>{g.nearestExp ? formatExp(g.nearestExp) : '—'}</b>
+                      </div>
+                      <div className="text-sm opacity-70 mt-1">
+                        Hodnota: <b>{g.valueKnown ? fmtEur(g.totalValue) : '—'}</b>
+                      </div>
+                    </div>
 
-                              <div className="shrink-0 flex flex-col items-end">
-                                <div className="flex items-center gap-2">
-                                  <span className={`inline-block w-3 h-3 rounded-full ${st.dot}`} />
-                                  <div className="text-xs font-semibold">{st.label}</div>
-                                </div>
-                                <div className="text-xs opacity-60 mt-2">{isOpen ? 'Skryť' : 'Detail'}</div>
-                              </div>
-                            </div>
-                          </button>
+                    <div className="shrink-0 flex flex-col items-end">
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-block w-3 h-3 rounded-full ${st.dot}`} />
+                        <div className="text-xs font-semibold">{st.label}</div>
+                      </div>
+                      <div className="text-xs opacity-60 mt-2">{isOpen ? 'Skryť' : 'Detail'}</div>
+                    </div>
+                  </div>
+                </button>
 
-                          {isOpen && (
-                            <div className="mt-3 space-y-3">
-                              {g.bySkladArr.map(sg => (
-                                <div key={`${sg.sklad_id}:${sg.sklad_nazov}`} className="border rounded-xl p-3 bg-gray-50">
-                                  <div className="flex items-center justify-between">
-                                    <div className="text-sm font-semibold">{sg.sklad_nazov}</div>
-                                    <div className="text-sm">
-                                      <b>{sg.totalQty} ks</b> · EXP <b>{sg.nearestExp ? formatExp(sg.nearestExp) : '—'}</b>
+                {isOpen && (
+                  <div className="mt-3 space-y-3">
+                    {g.bySkladArr.map(sg => (
+                      <div key={`${sg.sklad_id}:${sg.sklad_nazov}`} className="border rounded-xl p-3 bg-gray-50">
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-semibold">{sg.sklad_nazov}</div>
+                          <div className="text-sm">
+                            <b>{sg.totalQty} ks</b> · EXP <b>{sg.nearestExp ? formatExp(sg.nearestExp) : '—'}</b>
+                          </div>
+                        </div>
+
+                        <div className="mt-2 space-y-2">
+                          {sg.rows.map(r => {
+                            const st2 = expStatus(r.expiracia)
+                            const qty = Number(r.mnozstvo) || 0
+                            const buy = Number(r.nakupna_cena)
+                            const total = Number.isFinite(buy) ? Math.round(buy * qty * 100) / 100 : null
+
+                            return (
+                              <div key={r.id} className="border rounded-xl p-3 bg-white">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`inline-block w-2.5 h-2.5 rounded-full ${st2.dot}`} />
+                                    <div className="text-sm font-semibold">
+                                      EXP {formatExp(r.expiracia) || '—'}
                                     </div>
                                   </div>
-
-                                  <div className="mt-2 space-y-2">
-                                    {sg.rows.map(r => {
-                                      const st2 = expStatus(r.expiracia)
-                                      const qty = Number(r.mnozstvo) || 0
-                                      const buy = Number(r.nakupna_cena)
-                                      const total = Number.isFinite(buy) ? Math.round(buy * qty * 100) / 100 : null
-
-                                      return (
-                                        <div key={r.id} className="border rounded-xl p-3 bg-white">
-                                          <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                              <span className={`inline-block w-2.5 h-2.5 rounded-full ${st2.dot}`} />
-                                              <div className="text-sm font-semibold">
-                                                EXP {formatExp(r.expiracia) || '—'}
-                                              </div>
-                                            </div>
-                                            <div className="text-sm font-semibold">{qty} ks</div>
-                                          </div>
-
-                                          <div className="text-xs opacity-70 mt-1">{st2.label}</div>
-
-                                          <div className="text-sm opacity-80 mt-2">
-                                            Nákup: <b>{fmtEur(buy)}</b> / ks · Hodnota: <b>{total !== null ? fmtEur(total) : '—'}</b>
-                                          </div>
-                                        </div>
-                                      )
-                                    })}
-                                  </div>
+                                  <div className="text-sm font-semibold">{qty} ks</div>
                                 </div>
-                              ))}
-                            </div>
-                          )}
+
+                                <div className="text-xs opacity-70 mt-1">{st2.label}</div>
+
+                                <div className="text-sm opacity-80 mt-2">
+                                  Nákup: <b>{fmtEur(buy)}</b> / ks · Hodnota: <b>{total !== null ? fmtEur(total) : '—'}</b>
+                                </div>
+                              </div>
+                            )
+                          })}
                         </div>
-                      )
-                    })}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
-
-              <div className="h-1" />
-            </div>
-          </div>
-        </div>
+            )
+          })
+        )}
       </div>
     </div>
   )
