@@ -350,10 +350,13 @@ export default function Sklad() {
                     </div>
 
                     <div className="shrink-0 flex flex-col items-end">
-                      <div className="flex items-center gap-2">
-                        <span className={`inline-block w-3 h-3 rounded-full ${st.dot}`} />
-                        <div className="text-xs font-semibold">{st.label}</div>
-                      </div>
+                      {/* ✅ status sa zobrazí až po rozkliknutí */}
+                      {isOpen && (
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-block w-3 h-3 rounded-full ${st.dot}`} />
+                          <div className="text-xs font-semibold">{st.label}</div>
+                        </div>
+                      )}
                       <div className="text-xs opacity-60 mt-2">{isOpen ? 'Skryť' : 'Detail'}</div>
                     </div>
                   </div>
