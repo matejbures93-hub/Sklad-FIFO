@@ -1,9 +1,68 @@
-import {useState} from 'react';import {useNavigate} from 'react-router-dom';import {signIn,signUp} from '../app/auth';
-export default function Login(){const[e,setE]=useState('');const[p,setP]=useState('');const[m,setM]=useState('login');const[msg,setMsg]=useState('');const nav=useNavigate();
-const s=async(ev)=>{ev.preventDefault();setMsg('');try{if(m==='login'){const{error}=await signIn(e,p);if(error)throw error;nav('/');}
-else{const{error}=await signUp(e,p);if(error)throw error;setMsg('Registrácia hotová.');}}catch(x){setMsg(x.message)}}
-return(<div className="max-w-md mx-auto p-4"><h1 className="text-xl font-bold mb-3">{m==='login'?'Prihlásenie':'Registrácia'}</h1>
-<form onSubmit={s} className="space-y-3"><input className="w-full border rounded-xl px-3 py-2" placeholder="Email" value={e} onChange={x=>setE(x.target.value)}/>
-<input type="password" className="w-full border rounded-xl px-3 py-2" placeholder="Heslo" value={p} onChange={x=>setP(x.target.value)}/>
-{msg&&<div className="text-sm border rounded-xl p-2">{msg}</div>}<button className="w-full border rounded-xl py-2 font-semibold">OK</button></form>
-<div className="mt-3 text-sm"><button className="underline" onClick={()=>setM(m==='login'?'signup':'login')}>Prepnúť</button></div></div>)}
+import { useState } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { signIn } from '../app/auth'
+
+export default function Login() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [msg, setMsg] = useState('')
+
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // správa z RequireAuth (napr. nepovolený účet)
+  const authError = location.state?.authError || ''
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setMsg('')
+
+    try {
+      const { error } = await signIn(email, password)
+      if (error) throw error
+      navigate('/')
+    } catch (err) {
+      setMsg(err?.message ?? 'Chyba pri prihlásení')
+    }
+  }
+
+  return (
+    <div className="max-w-md mx-auto p-4">
+      <h1 className="text-xl font-bold mb-3">Prihlásenie</h1>
+
+      {/* hláška z bezpečnostného bloku */}
+      {authError && (
+        <div className="text-sm border rounded-xl p-3 mb-3 bg-white">
+          {authError}
+        </div>
+      )}
+
+      <form onSubmit={submit} className="space-y-3">
+        <input
+          className="w-full border rounded-xl px-3 py-2"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+
+        <input
+          type="password"
+          className="w-full border rounded-xl px-3 py-2"
+          placeholder="Heslo"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+
+        {msg && (
+          <div className="text-sm border rounded-xl p-2">
+            {msg}
+          </div>
+        )}
+
+        <button className="w-full border rounded-xl py-2 font-semibold">
+          Prihlásiť sa
+        </button>
+      </form>
+    </div>
+  )
+}

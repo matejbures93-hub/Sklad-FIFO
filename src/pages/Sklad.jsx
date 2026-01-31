@@ -14,6 +14,11 @@ function fmtEur(v) {
   return `${n.toFixed(2)} €`
 }
 
+function parseEur(s) {
+  const n = Number(String(s ?? '').trim().replace(',', '.'))
+  return Number.isFinite(n) ? n : NaN
+}
+
 function daysUntil(dateStr) {
   if (!dateStr) return null
   const today = new Date()
@@ -42,6 +47,13 @@ export default function Sklad() {
   const [onlyCritical, setOnlyCritical] = useState(false)
   const [showExpired, setShowExpired] = useState(true)
   const [openKey, setOpenKey] = useState('')
+
+  // ✏️ edit cena modal
+  const [editOpen, setEditOpen] = useState(false)
+  const [editRowId, setEditRowId] = useState(null)
+  const [editPrice, setEditPrice] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [editErr, setEditErr] = useState('')
 
   const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
@@ -188,6 +200,51 @@ export default function Sklad() {
     setOpenKey('')
   }, [q, letter, skladFilter, onlyCritical, showExpired])
 
+  const openEdit = (row) => {
+    setEditErr('')
+    setEditRowId(row?.id ?? null)
+    const cur = row?.nakupna_cena
+    setEditPrice(cur === null || cur === undefined ? '' : String(cur).replace('.', ','))
+    setEditOpen(true)
+  }
+
+  const closeEdit = () => {
+    if (editSaving) return
+    setEditOpen(false)
+    setEditRowId(null)
+    setEditPrice('')
+    setEditErr('')
+  }
+
+  const saveEdit = async () => {
+    setEditErr('')
+    const id = Number(editRowId)
+    if (!id) return setEditErr('Chýba ID záznamu.')
+
+    const val = parseEur(editPrice)
+    if (!Number.isFinite(val) || val <= 0) return setEditErr('Zadaj platnú cenu (napr. 2,30).')
+
+    setEditSaving(true)
+    try {
+      const { error } = await supabase
+        .from('zasoby')
+        .update({ nakupna_cena: val })
+        .eq('id', id)
+
+      if (error) throw error
+
+      // update lokálne (bez reloadu)
+      setRows(prev => (prev ?? []).map(r => (r.id === id ? { ...r, nakupna_cena: val } : r)))
+      setEditOpen(false)
+      setEditRowId(null)
+      setEditPrice('')
+    } catch (e) {
+      setEditErr(e?.message ?? 'Chyba pri ukladaní ceny')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
   return (
     <div className="max-w-md mx-auto p-4 pb-24">
       <div className="flex items-center justify-between mb-3">
@@ -198,7 +255,7 @@ export default function Sklad() {
       {msg && <div className="text-sm border rounded-xl p-3 mb-3 bg-white">{msg}</div>}
       {loading && <div className="text-sm opacity-70 mb-2">Načítavam…</div>}
 
-      {/* FILTRE = normálne v toku stránky (žiadne sticky/fixed => nepláva) */}
+      {/* FILTRE */}
       <div className="border rounded-2xl bg-white shadow-sm p-3 mb-3">
         <div className="space-y-2">
           <div className="flex flex-wrap gap-1">
@@ -322,17 +379,28 @@ export default function Sklad() {
 
                             return (
                               <div key={r.id} className="border rounded-xl p-3 bg-white">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <span className={`inline-block w-2.5 h-2.5 rounded-full ${st2.dot}`} />
-                                    <div className="text-sm font-semibold">
-                                      EXP {formatExp(r.expiracia) || '—'}
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`inline-block w-2.5 h-2.5 rounded-full ${st2.dot}`} />
+                                      <div className="text-sm font-semibold">
+                                        EXP {formatExp(r.expiracia) || '—'}
+                                      </div>
                                     </div>
+                                    <div className="text-xs opacity-70 mt-1">{st2.label}</div>
                                   </div>
-                                  <div className="text-sm font-semibold">{qty} ks</div>
-                                </div>
 
-                                <div className="text-xs opacity-70 mt-1">{st2.label}</div>
+                                  <div className="text-right shrink-0">
+                                    <div className="text-sm font-semibold">{qty} ks</div>
+                                    <button
+                                      className="text-xs underline mt-1"
+                                      onClick={() => openEdit(r)}
+                                      title="Upraviť nákupnú cenu"
+                                    >
+                                      ✏️ Cena
+                                    </button>
+                                  </div>
+                                </div>
 
                                 <div className="text-sm opacity-80 mt-2">
                                   Nákup: <b>{fmtEur(buy)}</b> / ks · Hodnota: <b>{total !== null ? fmtEur(total) : '—'}</b>
@@ -350,6 +418,52 @@ export default function Sklad() {
           })
         )}
       </div>
+
+      {/* ✏️ MODAL EDIT CENY */}
+      {editOpen && (
+        <div className="fixed inset-0 z-[80]">
+          <button
+            className="absolute inset-0 bg-black/40"
+            onClick={closeEdit}
+            aria-label="Zavrieť"
+          />
+          <div className="absolute left-1/2 top-1/2 w-[92%] max-w-sm -translate-x-1/2 -translate-y-1/2 bg-white border rounded-2xl shadow-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-base font-semibold">Upraviť nákupnú cenu</div>
+              <button className="text-sm underline" onClick={closeEdit} disabled={editSaving}>
+                Zavrieť
+              </button>
+            </div>
+
+            <div className="text-sm opacity-70 mb-2">
+              Zadaj cenu za kus (€/ks). Môžeš písať aj s čiarkou (napr. 2,30).
+            </div>
+
+            <input
+              inputMode="decimal"
+              className="w-full border rounded-xl px-3 py-3 text-lg"
+              placeholder="napr. 2,30"
+              value={editPrice}
+              onChange={(e) => setEditPrice(e.target.value)}
+              disabled={editSaving}
+            />
+
+            {editErr && (
+              <div className="text-sm border rounded-xl p-2 mt-2 bg-white">
+                {editErr}
+              </div>
+            )}
+
+            <button
+              className="w-full border rounded-xl py-3 text-lg font-semibold mt-3"
+              onClick={saveEdit}
+              disabled={editSaving}
+            >
+              {editSaving ? 'Ukladám…' : 'Uložiť'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

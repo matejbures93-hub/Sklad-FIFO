@@ -16,6 +16,13 @@ function round2(n) {
   return Math.round(n * 100) / 100
 }
 
+function fmtEur(v) {
+  if (v === null || v === undefined || v === '') return '—'
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  return `${n.toFixed(2)} €`
+}
+
 export default function Predaj() {
   const [produkty, setProdukty] = useState([])
   const [produktId, setProduktId] = useState('')
@@ -25,7 +32,6 @@ export default function Predaj() {
   const [loading, setLoading] = useState(false)
 
   // predajka
-  const [komu, setKomu] = useState('')
   const [cenaKs, setCenaKs] = useState('')
   const [qtyInput, setQtyInput] = useState('')
 
@@ -37,13 +43,18 @@ export default function Predaj() {
 
   // ZÁKAZNÍCI
   const [zakaznici, setZakaznici] = useState([])
-  const [zakaznikId, setZakaznikId] = useState('') // vybraný zákazník (id)
+  const [zakaznikId, setZakaznikId] = useState('') // povinný
 
   // rýchly nový zákazník pri predaji
   const [newCustOpen, setNewCustOpen] = useState(false)
   const [newNazov, setNewNazov] = useState('')
   const [newTelefon, setNewTelefon] = useState('')
   const [newEmail, setNewEmail] = useState('')
+
+  // A–Z filter produktov
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+  const [letter, setLetter] = useState('') // vybrané písmeno
+  const [qProd, setQProd] = useState('') // voliteľné vyhľadávanie v produktoch
 
   const loadProdukty = async () => {
     setMsg('')
@@ -66,7 +77,7 @@ export default function Predaj() {
 
     const { data, error } = await supabase
       .from('zasoby')
-      .select('id, sklad_id, expiracia, mnozstvo, aktivne, sklady(nazov), produkty(nazov)')
+      .select('id, sklad_id, expiracia, mnozstvo, nakupna_cena, aktivne, sklady(nazov), produkty(nazov)')
       .eq('produkt_id', pid)
       .eq('aktivne', true)
       .gt('mnozstvo', 0)
@@ -81,11 +92,27 @@ export default function Predaj() {
     loadProdukty()
     loadZakaznici()
   }, [])
-  useEffect(() => { loadStock() }, [produktId])
+  useEffect(() => {
+    loadStock()
+  }, [produktId])
 
-  // zoskup podľa skladu pre vybraný produkt
+  // produkty podľa písmena + hľadania
+  const filteredProdukty = useMemo(() => {
+    const pick = (letter || '').trim().toUpperCase()
+    const query = (qProd || '').trim().toLowerCase()
+
+    return (produkty ?? []).filter(p => {
+      const name = String(p.nazov ?? '')
+      if (pick && !name.toUpperCase().startsWith(pick)) return false
+      if (query && !name.toLowerCase().includes(query)) return false
+      return true
+    })
+  }, [produkty, letter, qProd])
+
+  // zoskup podľa skladu pre vybraný produkt + aj nákupné ceny
   const skladSummary = useMemo(() => {
     const map = new Map()
+
     for (const r of stockRows) {
       const sid = r.sklad_id
       if (!map.has(sid)) {
@@ -93,14 +120,34 @@ export default function Predaj() {
           sklad_id: sid,
           sklad_nazov: r.sklady?.nazov ?? `Sklad ${sid}`,
           total: 0,
+
           nearestExp: r.expiracia ?? null,
+          nearestBuy: Number.isFinite(Number(r.nakupna_cena)) ? Number(r.nakupna_cena) : null,
+
+          minBuy: null,
+          maxBuy: null,
           produkt_nazov: r.produkty?.nazov ?? '',
         })
       }
+
       const g = map.get(sid)
-      g.total += Number(r.mnozstvo) || 0
-      if (!g.nearestExp || (r.expiracia && r.expiracia < g.nearestExp)) g.nearestExp = r.expiracia
+
+      const qty = Number(r.mnozstvo) || 0
+      g.total += qty
+
+      // nearest exp + nearest buy (podľa prvej najbližšej šarže)
+      if (!g.nearestExp || (r.expiracia && r.expiracia < g.nearestExp)) {
+        g.nearestExp = r.expiracia
+        g.nearestBuy = Number.isFinite(Number(r.nakupna_cena)) ? Number(r.nakupna_cena) : null
+      }
+
+      const buy = Number(r.nakupna_cena)
+      if (Number.isFinite(buy)) {
+        if (g.minBuy === null || buy < g.minBuy) g.minBuy = buy
+        if (g.maxBuy === null || buy > g.maxBuy) g.maxBuy = buy
+      }
     }
+
     return Array.from(map.values()).sort((a, b) => a.sklad_id - b.sklad_id)
   }, [stockRows])
 
@@ -132,7 +179,10 @@ export default function Predaj() {
     const q = Number(qty)
     const price = parseEur(cenaKs)
 
-    if (!komu.trim()) return setMsg('Zadaj komu bolo predané (predajka)')
+    // ✅ povinný zákazník (verzia A)
+    const zid = Number(zakaznikId)
+    if (!zid) return setMsg('Vyber zákazníka (karta)')
+
     if (!pid) return setMsg('Vyber produkt')
     if (!chosenSklad?.sklad_id) return setMsg('Nie je dostupný sklad pre tento produkt')
     if (!q || q <= 0) return setMsg('Zadaj množstvo')
@@ -237,6 +287,7 @@ export default function Predaj() {
         next.sort((a, b) => (a.nazov ?? '').localeCompare(b.nazov ?? ''))
         return next
       })
+
       setZakaznikId(String(created.id))
       setNewCustOpen(false)
       setNewNazov('')
@@ -250,7 +301,9 @@ export default function Predaj() {
 
   const dokonciPredajku = async () => {
     setMsg('')
-    if (!komu.trim()) return setMsg('Zadaj komu bolo predané')
+
+    const zid = Number(zakaznikId)
+    if (!zid) return setMsg('Vyber zákazníka (karta)')
     if (cart.length === 0) return setMsg('Košík je prázdny')
 
     setLoading(true)
@@ -259,14 +312,14 @@ export default function Predaj() {
       if (sessErr) throw sessErr
       const user = sess?.session?.user
 
-      // vybraný zákazník (voliteľné)
-      const zid = Number(zakaznikId) || null
+      const custName = (zakaznici.find(z => Number(z.id) === zid)?.nazov ?? '').trim() || null
 
-      // 1) vytvor hlavičku predajky + zakaznik_id
+      // 1) hlavička predajky
       const insHead = await supabase
         .from('predajky')
         .insert({
-          komu: komu.trim(),
+          // nech sa ti nič nerozbije v histórii – uložíme názov zákazníka aj do "komu"
+          komu: custName,
           suma: cartTotal,
           zakaznik_id: zid,
           user_id: user?.id ?? null,
@@ -279,7 +332,7 @@ export default function Predaj() {
       const predajkaId = insHead.data?.id
       if (!predajkaId) throw new Error('Nepodarilo sa vytvoriť predajku')
 
-      // 2) pre každú položku: FEFO odpočet + insert položky
+      // 2) položky: FEFO odpočet + insert
       for (const item of cart) {
         await fefoDeduct(item.produkt_id, item.sklad_id, item.qty)
 
@@ -294,12 +347,13 @@ export default function Predaj() {
         if (insItem.error) throw insItem.error
       }
 
+      // reset košíka a výberov
       setCart([])
       setProduktId('')
       setOverrideSkladId('')
       setQtyInput('')
       setCenaKs('')
-      setZakaznikId('')
+      // zákazníka necháme vybraného (príjemné pri viacerých predajoch)
       setMsg(`Predajka uložená ✅ (Spolu ${cartTotal.toFixed(2)} €)`)
     } catch (e) {
       setMsg(e?.message ?? 'Chyba pri dokončení predajky')
@@ -317,26 +371,16 @@ export default function Predaj() {
 
       {msg && <div className="text-base border rounded-xl p-3 mb-3">{msg}</div>}
 
-      {/* Predajka údaje */}
+      {/* ZÁKAZNÍK */}
       <div className="space-y-2 mb-3">
         <div>
-          <div className="text-sm font-semibold mb-1">Komu bolo predané</div>
-          <input
-            className="w-full border rounded-xl px-3 py-3 text-lg"
-            placeholder="napr. Ján Novák / Firma..."
-            value={komu}
-            onChange={(e) => setKomu(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <div className="text-sm font-semibold mb-1">Zákazník (karta)</div>
+          <div className="text-sm font-semibold mb-1">Zákazník (karta) *</div>
           <select
             className="w-full border rounded-xl px-3 py-3 text-lg"
             value={zakaznikId}
             onChange={(e) => setZakaznikId(e.target.value)}
           >
-            <option value="">— Nepriradiť (len text “komu”) —</option>
+            <option value="">— Vyber zákazníka —</option>
             {zakaznici.map(z => (
               <option key={z.id} value={z.id}>{z.nazov}</option>
             ))}
@@ -378,8 +422,48 @@ export default function Predaj() {
         </div>
       </div>
 
-      {/* Výber produktu */}
+      {/* VÝBER PRODUKTU */}
       <div className="space-y-3">
+        {/* A–Z */}
+        <div className="border rounded-xl p-3">
+          <div className="text-sm opacity-70 mb-2">Rýchly výber podľa písmena</div>
+          <div className="flex flex-wrap gap-1">
+            {letters.map(l => (
+              <button
+                key={l}
+                className={`px-2 py-1 rounded-lg text-sm font-semibold border ${
+                  letter === l ? 'bg-black text-white' : 'bg-white'
+                }`}
+                onClick={() => {
+                  setLetter(l)
+                  setProduktId('')
+                  setOverrideSkladId('')
+                }}
+              >
+                {l}
+              </button>
+            ))}
+            <button
+              className="px-2 py-1 rounded-lg text-sm border"
+              onClick={() => {
+                setLetter('')
+                setProduktId('')
+                setOverrideSkladId('')
+              }}
+              title="Zrušiť písmeno"
+            >
+              ✕
+            </button>
+          </div>
+
+          <input
+            className="w-full border rounded-xl px-3 py-2 mt-2"
+            placeholder="(voliteľné) hľadať produkt…"
+            value={qProd}
+            onChange={(e) => setQProd(e.target.value)}
+          />
+        </div>
+
         <div>
           <div className="text-base font-semibold mb-1">Produkt</div>
           <select
@@ -388,21 +472,11 @@ export default function Predaj() {
             onChange={(e) => setProduktId(e.target.value)}
           >
             <option value="">Vyber…</option>
-            {produkty.map(p => <option key={p.id} value={p.id}>{p.nazov}</option>)}
+            {filteredProdukty.map(p => <option key={p.id} value={p.id}>{p.nazov}</option>)}
           </select>
         </div>
 
-        <div>
-          <div className="text-sm font-semibold mb-1">Cena (€/ks)</div>
-          <input
-            inputMode="decimal"
-            className="w-full border rounded-xl px-3 py-3 text-lg"
-            placeholder="napr. 3,90"
-            value={cenaKs}
-            onChange={(e) => setCenaKs(e.target.value)}
-          />
-        </div>
-
+        {/* ✅ SKLAD INFO PRVÝ */}
         {produktId && skladSummary.length > 0 && (
           <div className="border rounded-xl p-3">
             <div className="text-sm opacity-70">Sklad pre tento produkt</div>
@@ -426,15 +500,45 @@ export default function Predaj() {
             {chosenSklad && (
               <div className="mt-3">
                 <div className="text-base font-semibold">{chosenSklad.sklad_nazov}</div>
-                <div className="text-sm opacity-80">
-                  Dostupné: <span className="font-semibold">{chosenSklad.total}</span> ks · Najbližší EXP: <span className="font-semibold">{chosenSklad.nearestExp ? formatExp(chosenSklad.nearestExp) : '—'}</span>
+
+                <div className="text-sm opacity-80 mt-1">
+                  Dostupné: <span className="font-semibold">{chosenSklad.total}</span> ks · Najbližší EXP:{' '}
+                  <span className="font-semibold">{chosenSklad.nearestExp ? formatExp(chosenSklad.nearestExp) : '—'}</span>
+                </div>
+
+                <div className="text-sm opacity-80 mt-1">
+                  Nákupná cena (info):{' '}
+                  <span className="font-semibold">
+                    {chosenSklad.minBuy === null
+                      ? '—'
+                      : chosenSklad.minBuy === chosenSklad.maxBuy
+                        ? fmtEur(chosenSklad.minBuy)
+                        : `${fmtEur(chosenSklad.minBuy)} – ${fmtEur(chosenSklad.maxBuy)}`}
+                  </span>
+                  {chosenSklad.nearestBuy !== null && (
+                    <>
+                      {' '}· Najbližšia šarža: <span className="font-semibold">{fmtEur(chosenSklad.nearestBuy)}</span> / ks
+                    </>
+                  )}
                 </div>
               </div>
             )}
           </div>
         )}
 
-        {/* Pridanie do košíka */}
+        {/* ✅ AŽ POTOM ZADANIE PREDAJNEJ CENY */}
+        <div>
+          <div className="text-sm font-semibold mb-1">Cena (€/ks)</div>
+          <input
+            inputMode="decimal"
+            className="w-full border rounded-xl px-3 py-3 text-lg"
+            placeholder="napr. 3,90"
+            value={cenaKs}
+            onChange={(e) => setCenaKs(e.target.value)}
+          />
+        </div>
+
+        {/* PRIDANIE DO KOŠÍKA */}
         <div className="border rounded-xl p-3">
           <div className="text-base font-semibold mb-2">Pridať do predajky</div>
 
@@ -461,7 +565,7 @@ export default function Predaj() {
           </div>
         </div>
 
-        {/* Košík */}
+        {/* KOŠÍK */}
         <div className="border rounded-xl p-3">
           <div className="flex items-center justify-between">
             <div className="text-base font-semibold">Predajka (košík)</div>
