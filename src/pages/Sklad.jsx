@@ -345,7 +345,7 @@ export default function Sklad() {
                         Spolu: <b>{g.totalQty} ks</b> · Najbližší EXP: <b>{g.nearestExp ? formatExp(g.nearestExp) : '—'}</b>
                       </div>
                       <div className="text-sm opacity-70 mt-1">
-                        Hodnota: <b>{g.valueKnown ? fmtEur(g.totalValue) : '—'}</b>
+                        Cena spolu: <b>{g.valueKnown ? fmtEur(g.totalValue) : '—'}</b>
                       </div>
                     </div>
 
