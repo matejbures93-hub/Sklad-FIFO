@@ -19,6 +19,11 @@ function parseEur(s) {
   return Number.isFinite(n) ? n : NaN
 }
 
+function parseIntSafe(s) {
+  const n = Number(String(s ?? '').replace(/[^\d]/g, ''))
+  return Number.isFinite(n) ? Math.floor(n) : NaN
+}
+
 function daysUntil(dateStr) {
   if (!dateStr) return null
   const today = new Date()
@@ -55,6 +60,14 @@ export default function Sklad() {
   const [editSaving, setEditSaving] = useState(false)
   const [editErr, setEditErr] = useState('')
 
+  // ↔️ presun šarže modal
+  const [moveOpen, setMoveOpen] = useState(false)
+  const [moveRow, setMoveRow] = useState(null) // celý riadok z "zasoby"
+  const [moveTargetSkladId, setMoveTargetSkladId] = useState('')
+  const [moveQty, setMoveQty] = useState('')
+  const [moveSaving, setMoveSaving] = useState(false)
+  const [moveErr, setMoveErr] = useState('')
+
   const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
   const load = async () => {
@@ -81,6 +94,20 @@ export default function Sklad() {
 
   useEffect(() => { load() }, [])
 
+  // list skladov (id+nazov) – na presun
+  const skladyList = useMemo(() => {
+    const map = new Map()
+    for (const r of rows) {
+      const id = r.sklady?.id
+      const nazov = r.sklady?.nazov
+      if (id && nazov) map.set(id, nazov)
+    }
+    return Array.from(map.entries())
+      .map(([id, nazov]) => ({ id: Number(id), nazov }))
+      .sort((a, b) => (a.nazov ?? '').localeCompare(b.nazov ?? '', 'sk'))
+  }, [rows])
+
+  // filter dropdown podľa názvu (tvoje pôvodné)
   const skladyOptions = useMemo(() => {
     const set = new Set()
     for (const r of rows) {
@@ -200,6 +227,7 @@ export default function Sklad() {
     setOpenKey('')
   }, [q, letter, skladFilter, onlyCritical, showExpired])
 
+  // ✏️ EDIT CENA
   const openEdit = (row) => {
     setEditErr('')
     setEditRowId(row?.id ?? null)
@@ -233,7 +261,6 @@ export default function Sklad() {
 
       if (error) throw error
 
-      // update lokálne (bez reloadu)
       setRows(prev => (prev ?? []).map(r => (r.id === id ? { ...r, nakupna_cena: val } : r)))
       setEditOpen(false)
       setEditRowId(null)
@@ -242,6 +269,118 @@ export default function Sklad() {
       setEditErr(e?.message ?? 'Chyba pri ukladaní ceny')
     } finally {
       setEditSaving(false)
+    }
+  }
+
+  // ↔️ PRESUN ŠARŽE
+  const openMove = (row) => {
+    setMoveErr('')
+    setMoveRow(row ?? null)
+    setMoveQty('')
+    // default: prvý iný sklad než aktuálny
+    const curId = Number(row?.sklady?.id)
+    const firstOther = skladyList.find(s => Number(s.id) !== curId)
+    setMoveTargetSkladId(firstOther ? String(firstOther.id) : '')
+    setMoveOpen(true)
+  }
+
+  const closeMove = () => {
+    if (moveSaving) return
+    setMoveOpen(false)
+    setMoveRow(null)
+    setMoveTargetSkladId('')
+    setMoveQty('')
+    setMoveErr('')
+  }
+
+  const saveMove = async () => {
+    setMoveErr('')
+    const r = moveRow
+    const rowId = Number(r?.id)
+    const fromSkladId = Number(r?.sklady?.id)
+    const toSkladId = Number(moveTargetSkladId)
+    const have = Number(r?.mnozstvo) || 0
+    const qty = parseIntSafe(moveQty)
+
+    const produktId = Number(r?.produkty?.id)
+    if (!rowId) return setMoveErr('Chýba ID šarže.')
+    if (!produktId) return setMoveErr('Chýba produkt ID.')
+    if (!fromSkladId) return setMoveErr('Chýba zdrojový sklad.')
+    if (!toSkladId) return setMoveErr('Vyber cieľový sklad.')
+    if (toSkladId === fromSkladId) return setMoveErr('Cieľový sklad musí byť iný.')
+    if (!Number.isFinite(qty) || qty <= 0) return setMoveErr('Zadaj množstvo (ks).')
+    if (qty > have) return setMoveErr(`Nemôžeš presunúť viac než ${have} ks.`)
+
+    const targetName = skladyList.find(s => Number(s.id) === toSkladId)?.nazov ?? `Sklad ${toSkladId}`
+
+    setMoveSaving(true)
+    try {
+      // 1) presun celej šarže
+      if (qty === have) {
+        const { error } = await supabase
+          .from('zasoby')
+          .update({ sklad_id: toSkladId })
+          .eq('id', rowId)
+
+        if (error) throw error
+
+        // lokálne prepíš sklad
+        setRows(prev => (prev ?? []).map(x => (
+          x.id === rowId ? { ...x, sklady: { id: toSkladId, nazov: targetName } } : x
+        )))
+
+        setMsg('Presunuté ✅')
+        closeMove()
+        return
+      }
+
+      // 2) presun časti: update pôvodnej + insert novej
+      const left = have - qty
+
+      const upd = await supabase
+        .from('zasoby')
+        .update({ mnozstvo: left, aktivne: left > 0 })
+        .eq('id', rowId)
+      if (upd.error) throw upd.error
+
+      const ins = await supabase
+        .from('zasoby')
+        .insert({
+          produkt_id: produktId,
+          sklad_id: toSkladId,
+          expiracia: r?.expiracia ?? null,
+          mnozstvo: qty,
+          nakupna_cena: r?.nakupna_cena ?? null,
+          aktivne: true,
+        })
+        .select('id')
+        .single()
+      if (ins.error) throw ins.error
+
+      const newId = ins.data?.id
+      if (!newId) throw new Error('Nepodarilo sa vytvoriť novú šaržu.')
+
+      // lokálne: uprav pôvodný riadok + pridaj nový
+      setRows(prev => {
+        const list = [...(prev ?? [])]
+        const idx = list.findIndex(x => x.id === rowId)
+        if (idx >= 0) list[idx] = { ...list[idx], mnozstvo: left, aktivne: left > 0 }
+
+        list.push({
+          ...r,
+          id: newId,
+          mnozstvo: qty,
+          sklady: { id: toSkladId, nazov: targetName },
+        })
+        return list
+      })
+
+      setMsg('Presunuté ✅')
+      closeMove()
+    } catch (e) {
+      setMoveErr(e?.message ?? 'Chyba pri presune')
+    } finally {
+      setMoveSaving(false)
     }
   }
 
@@ -327,13 +466,17 @@ export default function Sklad() {
           <div className="text-sm opacity-70">Nič sa nenašlo.</div>
         ) : (
           grouped.map(g => {
-            const st = g.hasExpired
-              ? { dot: 'bg-red-500', label: 'EXPIROVANÉ' }
-              : g.hasCritical
-                ? { dot: 'bg-orange-500', label: 'Do 2 mesiacov' }
-                : { dot: 'bg-green-500', label: 'OK' }
-
             const isOpen = openKey === g.key
+
+            // ✅ zmena podľa tvojej požiadavky:
+            // keď je karta ZATVORENÁ, neukazujeme bodku ani "EXPIROVANÉ/OK..."
+            const st = isOpen
+              ? (g.hasExpired
+                  ? { dot: 'bg-red-500', label: 'EXPIROVANÉ' }
+                  : g.hasCritical
+                    ? { dot: 'bg-orange-500', label: 'Do 2 mesiacov' }
+                    : { dot: 'bg-green-500', label: 'OK' })
+              : null
 
             return (
               <div key={g.key} className="border rounded-2xl p-4 bg-white">
@@ -345,17 +488,18 @@ export default function Sklad() {
                         Spolu: <b>{g.totalQty} ks</b> · Najbližší EXP: <b>{g.nearestExp ? formatExp(g.nearestExp) : '—'}</b>
                       </div>
                       <div className="text-sm opacity-70 mt-1">
-                        Hodnota spolu: <b>{g.valueKnown ? fmtEur(g.totalValue) : '—'}</b>
+                        Cena spolu: <b>{g.valueKnown ? fmtEur(g.totalValue) : '—'}</b>
                       </div>
                     </div>
 
                     <div className="shrink-0 flex flex-col items-end">
-                      {/* ✅ status sa zobrazí až po rozkliknutí */}
-                      {isOpen && (
+                      {st ? (
                         <div className="flex items-center gap-2">
                           <span className={`inline-block w-3 h-3 rounded-full ${st.dot}`} />
                           <div className="text-xs font-semibold">{st.label}</div>
                         </div>
+                      ) : (
+                        <div className="h-[14px]" />
                       )}
                       <div className="text-xs opacity-60 mt-2">{isOpen ? 'Skryť' : 'Detail'}</div>
                     </div>
@@ -395,13 +539,22 @@ export default function Sklad() {
 
                                   <div className="text-right shrink-0">
                                     <div className="text-sm font-semibold">{qty} ks</div>
-                                    <button
-                                      className="text-xs underline mt-1"
-                                      onClick={() => openEdit(r)}
-                                      title="Upraviť nákupnú cenu"
-                                    >
-                                      ✏️ Cena
-                                    </button>
+                                    <div className="flex items-center justify-end gap-3 mt-1">
+                                      <button
+                                        className="text-xs underline"
+                                        onClick={() => openEdit(r)}
+                                        title="Upraviť nákupnú cenu"
+                                      >
+                                        ✏️ Cena
+                                      </button>
+                                      <button
+                                        className="text-xs underline"
+                                        onClick={() => openMove(r)}
+                                        title="Presunúť šaržu do iného skladu"
+                                      >
+                                        ↔ Presunúť
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
 
@@ -425,17 +578,11 @@ export default function Sklad() {
       {/* ✏️ MODAL EDIT CENY */}
       {editOpen && (
         <div className="fixed inset-0 z-[80]">
-          <button
-            className="absolute inset-0 bg-black/40"
-            onClick={closeEdit}
-            aria-label="Zavrieť"
-          />
+          <button className="absolute inset-0 bg-black/40" onClick={closeEdit} aria-label="Zavrieť" />
           <div className="absolute left-1/2 top-1/2 w-[92%] max-w-sm -translate-x-1/2 -translate-y-1/2 bg-white border rounded-2xl shadow-2xl p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="text-base font-semibold">Upraviť nákupnú cenu</div>
-              <button className="text-sm underline" onClick={closeEdit} disabled={editSaving}>
-                Zavrieť
-              </button>
+              <button className="text-sm underline" onClick={closeEdit} disabled={editSaving}>Zavrieť</button>
             </div>
 
             <div className="text-sm opacity-70 mb-2">
@@ -451,18 +598,67 @@ export default function Sklad() {
               disabled={editSaving}
             />
 
-            {editErr && (
-              <div className="text-sm border rounded-xl p-2 mt-2 bg-white">
-                {editErr}
-              </div>
-            )}
+            {editErr && <div className="text-sm border rounded-xl p-2 mt-2 bg-white">{editErr}</div>}
 
-            <button
-              className="w-full border rounded-xl py-3 text-lg font-semibold mt-3"
-              onClick={saveEdit}
-              disabled={editSaving}
-            >
+            <button className="w-full border rounded-xl py-3 text-lg font-semibold mt-3" onClick={saveEdit} disabled={editSaving}>
               {editSaving ? 'Ukladám…' : 'Uložiť'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ↔️ MODAL PRESUN ŠARŽE */}
+      {moveOpen && (
+        <div className="fixed inset-0 z-[80]">
+          <button className="absolute inset-0 bg-black/40" onClick={closeMove} aria-label="Zavrieť" />
+          <div className="absolute left-1/2 top-1/2 w-[92%] max-w-sm -translate-x-1/2 -translate-y-1/2 bg-white border rounded-2xl shadow-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-base font-semibold">Presunúť šaržu</div>
+              <button className="text-sm underline" onClick={closeMove} disabled={moveSaving}>Zavrieť</button>
+            </div>
+
+            <div className="text-sm opacity-70">
+              Produkt: <b>{moveRow?.produkty?.nazov ?? '—'}</b><br />
+              Zo skladu: <b>{moveRow?.sklady?.nazov ?? '—'}</b><br />
+              EXP: <b>{formatExp(moveRow?.expiracia) || '—'}</b> · Dostupné: <b>{Number(moveRow?.mnozstvo) || 0} ks</b>
+            </div>
+
+            <div className="mt-3">
+              <div className="text-sm font-semibold mb-1">Cieľový sklad</div>
+              <select
+                className="w-full border rounded-xl px-3 py-2"
+                value={moveTargetSkladId}
+                onChange={(e) => setMoveTargetSkladId(e.target.value)}
+                disabled={moveSaving}
+              >
+                <option value="">— vyber —</option>
+                {skladyList
+                  .filter(s => Number(s.id) !== Number(moveRow?.sklady?.id))
+                  .map(s => (
+                    <option key={s.id} value={s.id}>{s.nazov}</option>
+                  ))}
+              </select>
+            </div>
+
+            <div className="mt-3">
+              <div className="text-sm font-semibold mb-1">Množstvo (ks)</div>
+              <input
+                inputMode="numeric"
+                className="w-full border rounded-xl px-3 py-3 text-lg"
+                placeholder="napr. 5"
+                value={moveQty}
+                onChange={(e) => setMoveQty(e.target.value.replace(/[^\d]/g, ''))}
+                disabled={moveSaving}
+              />
+              <div className="text-xs opacity-60 mt-1">
+                Tip: ak zadáš celé množstvo, šarža sa len “presunie”. Ak zadáš menej, šarža sa rozdelí.
+              </div>
+            </div>
+
+            {moveErr && <div className="text-sm border rounded-xl p-2 mt-3 bg-white">{moveErr}</div>}
+
+            <button className="w-full border rounded-xl py-3 text-lg font-semibold mt-3" onClick={saveMove} disabled={moveSaving}>
+              {moveSaving ? 'Presúvam…' : 'Presunúť'}
             </button>
           </div>
         </div>
