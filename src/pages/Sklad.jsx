@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../services/supabase'
 import BulkMove from '../components/BulkMove'
+import MergeBatches from '../components/MergeBatches'
 
 function formatExp(exp) {
   if (!exp) return ''
@@ -519,6 +520,14 @@ export default function Sklad() {
 
       {/* 🔥 HROMADNÝ PRESUN */}
       <BulkMove skladyList={skladyList} onDone={load} />
+
+      <div className="border rounded-2xl bg-red-100 p-3 mb-3 font-bold">
+
+  TEST MERGE BLOK
+
+</div>
+      
+      <MergeBatches skladyList={skladyList} onDone={load} />
 
       {msg && <div className="text-sm border rounded-xl p-3 mb-3 bg-white">{msg}</div>}
       {loading && <div className="text-sm opacity-70 mb-2">Načítavam…</div>}
