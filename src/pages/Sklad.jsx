@@ -62,11 +62,18 @@ export default function Sklad() {
 
   // ↔️ presun šarže modal
   const [moveOpen, setMoveOpen] = useState(false)
-  const [moveRow, setMoveRow] = useState(null) // celý riadok z "zasoby"
+  const [moveRow, setMoveRow] = useState(null)
   const [moveTargetSkladId, setMoveTargetSkladId] = useState('')
   const [moveQty, setMoveQty] = useState('')
   const [moveSaving, setMoveSaving] = useState(false)
   const [moveErr, setMoveErr] = useState('')
+
+  // 🧮 inventúra modal
+  const [invOpen, setInvOpen] = useState(false)
+  const [invRow, setInvRow] = useState(null)
+  const [invQty, setInvQty] = useState('')
+  const [invSaving, setInvSaving] = useState(false)
+  const [invErr, setInvErr] = useState('')
 
   const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
@@ -94,7 +101,6 @@ export default function Sklad() {
 
   useEffect(() => { load() }, [])
 
-  // list skladov (id+nazov) – na presun
   const skladyList = useMemo(() => {
     const map = new Map()
     for (const r of rows) {
@@ -107,7 +113,6 @@ export default function Sklad() {
       .sort((a, b) => (a.nazov ?? '').localeCompare(b.nazov ?? '', 'sk'))
   }, [rows])
 
-  // filter dropdown podľa názvu (tvoje pôvodné)
   const skladyOptions = useMemo(() => {
     const set = new Set()
     for (const r of rows) {
@@ -277,7 +282,6 @@ export default function Sklad() {
     setMoveErr('')
     setMoveRow(row ?? null)
     setMoveQty('')
-    // default: prvý iný sklad než aktuálny
     const curId = Number(row?.sklady?.id)
     const firstOther = skladyList.find(s => Number(s.id) !== curId)
     setMoveTargetSkladId(firstOther ? String(firstOther.id) : '')
@@ -315,7 +319,6 @@ export default function Sklad() {
 
     setMoveSaving(true)
     try {
-      // 1) presun celej šarže
       if (qty === have) {
         const { error } = await supabase
           .from('zasoby')
@@ -324,7 +327,6 @@ export default function Sklad() {
 
         if (error) throw error
 
-        // lokálne prepíš sklad
         setRows(prev => (prev ?? []).map(x => (
           x.id === rowId ? { ...x, sklady: { id: toSkladId, nazov: targetName } } : x
         )))
@@ -334,7 +336,6 @@ export default function Sklad() {
         return
       }
 
-      // 2) presun časti: update pôvodnej + insert novej
       const left = have - qty
 
       const upd = await supabase
@@ -360,7 +361,6 @@ export default function Sklad() {
       const newId = ins.data?.id
       if (!newId) throw new Error('Nepodarilo sa vytvoriť novú šaržu.')
 
-      // lokálne: uprav pôvodný riadok + pridaj nový
       setRows(prev => {
         const list = [...(prev ?? [])]
         const idx = list.findIndex(x => x.id === rowId)
@@ -384,6 +384,58 @@ export default function Sklad() {
     }
   }
 
+  // 🧮 INVENTÚRA ŠARŽE
+  const openInv = (row) => {
+    setInvErr('')
+    setInvRow(row ?? null)
+    setInvQty(String(row?.mnozstvo ?? ''))
+    setInvOpen(true)
+  }
+
+  const closeInv = () => {
+    if (invSaving) return
+    setInvOpen(false)
+    setInvRow(null)
+    setInvQty('')
+    setInvErr('')
+  }
+
+  const saveInv = async () => {
+    setInvErr('')
+
+    const id = Number(invRow?.id)
+    const qty = parseIntSafe(invQty)
+
+    if (!id) return setInvErr('Chýba ID šarže.')
+    if (!Number.isFinite(qty) || qty < 0) return setInvErr('Zadaj platné množstvo.')
+    if (qty > 999999) return setInvErr('Množstvo je príliš vysoké.')
+
+    setInvSaving(true)
+    try {
+      const { error } = await supabase
+        .from('zasoby')
+        .update({
+          mnozstvo: qty,
+          aktivne: qty > 0,
+        })
+        .eq('id', id)
+
+      if (error) throw error
+
+      setRows(prev => (prev ?? [])
+        .map(r => (r.id === id ? { ...r, mnozstvo: qty, aktivne: qty > 0 } : r))
+        .filter(r => r.aktivne !== false)
+      )
+
+      setMsg('Inventúra uložená ✅')
+      closeInv()
+    } catch (e) {
+      setInvErr(e?.message ?? 'Chyba pri inventúre')
+    } finally {
+      setInvSaving(false)
+    }
+  }
+
   return (
     <div className="max-w-md mx-auto p-4 pb-24">
       <div className="flex items-center justify-between mb-3">
@@ -394,7 +446,6 @@ export default function Sklad() {
       {msg && <div className="text-sm border rounded-xl p-3 mb-3 bg-white">{msg}</div>}
       {loading && <div className="text-sm opacity-70 mb-2">Načítavam…</div>}
 
-      {/* FILTRE */}
       <div className="border rounded-2xl bg-white shadow-sm p-3 mb-3">
         <div className="space-y-2">
           <div className="flex flex-wrap gap-1">
@@ -460,7 +511,6 @@ export default function Sklad() {
         </div>
       </div>
 
-      {/* ZOZNAM */}
       <div className="space-y-3">
         {grouped.length === 0 && !loading ? (
           <div className="text-sm opacity-70">Nič sa nenašlo.</div>
@@ -468,8 +518,6 @@ export default function Sklad() {
           grouped.map(g => {
             const isOpen = openKey === g.key
 
-            // ✅ zmena podľa tvojej požiadavky:
-            // keď je karta ZATVORENÁ, neukazujeme bodku ani "EXPIROVANÉ/OK..."
             const st = isOpen
               ? (g.hasExpired
                   ? { dot: 'bg-red-500', label: 'EXPIROVANÉ' }
@@ -539,7 +587,7 @@ export default function Sklad() {
 
                                   <div className="text-right shrink-0">
                                     <div className="text-sm font-semibold">{qty} ks</div>
-                                    <div className="flex items-center justify-end gap-3 mt-1">
+                                    <div className="flex flex-wrap items-center justify-end gap-3 mt-1">
                                       <button
                                         className="text-xs underline"
                                         onClick={() => openEdit(r)}
@@ -553,6 +601,13 @@ export default function Sklad() {
                                         title="Presunúť šaržu do iného skladu"
                                       >
                                         ↔ Presunúť
+                                      </button>
+                                      <button
+                                        className="text-xs underline"
+                                        onClick={() => openInv(r)}
+                                        title="Inventúra šarže"
+                                      >
+                                        🧮 Inventúra
                                       </button>
                                     </div>
                                   </div>
@@ -575,7 +630,6 @@ export default function Sklad() {
         )}
       </div>
 
-      {/* ✏️ MODAL EDIT CENY */}
       {editOpen && (
         <div className="fixed inset-0 z-[80]">
           <button className="absolute inset-0 bg-black/40" onClick={closeEdit} aria-label="Zavrieť" />
@@ -607,7 +661,6 @@ export default function Sklad() {
         </div>
       )}
 
-      {/* ↔️ MODAL PRESUN ŠARŽE */}
       {moveOpen && (
         <div className="fixed inset-0 z-[80]">
           <button className="absolute inset-0 bg-black/40" onClick={closeMove} aria-label="Zavrieť" />
@@ -659,6 +712,46 @@ export default function Sklad() {
 
             <button className="w-full border rounded-xl py-3 text-lg font-semibold mt-3" onClick={saveMove} disabled={moveSaving}>
               {moveSaving ? 'Presúvam…' : 'Presunúť'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {invOpen && (
+        <div className="fixed inset-0 z-[80]">
+          <button className="absolute inset-0 bg-black/40" onClick={closeInv} aria-label="Zavrieť" />
+          <div className="absolute left-1/2 top-1/2 w-[92%] max-w-sm -translate-x-1/2 -translate-y-1/2 bg-white border rounded-2xl shadow-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-base font-semibold">Inventúra šarže</div>
+              <button className="text-sm underline" onClick={closeInv} disabled={invSaving}>Zavrieť</button>
+            </div>
+
+            <div className="text-sm opacity-70">
+              Produkt: <b>{invRow?.produkty?.nazov ?? '—'}</b><br />
+              Sklad: <b>{invRow?.sklady?.nazov ?? '—'}</b><br />
+              EXP: <b>{formatExp(invRow?.expiracia) || '—'}</b><br />
+              Aktuálne v systéme: <b>{Number(invRow?.mnozstvo) || 0} ks</b>
+            </div>
+
+            <div className="mt-3">
+              <div className="text-sm font-semibold mb-1">Reálne množstvo (ks)</div>
+              <input
+                inputMode="numeric"
+                className="w-full border rounded-xl px-3 py-3 text-lg"
+                placeholder="napr. 5"
+                value={invQty}
+                onChange={(e) => setInvQty(e.target.value.replace(/[^\d]/g, ''))}
+                disabled={invSaving}
+              />
+              <div className="text-xs opacity-60 mt-1">
+                Ak zadáš 0, šarža sa deaktivuje a zmizne zo skladu.
+              </div>
+            </div>
+
+            {invErr && <div className="text-sm border rounded-xl p-2 mt-3 bg-white">{invErr}</div>}
+
+            <button className="w-full border rounded-xl py-3 text-lg font-semibold mt-3" onClick={saveInv} disabled={invSaving}>
+              {invSaving ? 'Ukladám…' : 'Uložiť inventúru'}
             </button>
           </div>
         </div>
