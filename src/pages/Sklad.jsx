@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../services/supabase'
+import BulkMove from '../components/BulkMove'
 
 function formatExp(exp) {
   if (!exp) return ''
@@ -517,49 +518,7 @@ export default function Sklad() {
       </div>
 
       {/* 🔥 HROMADNÝ PRESUN */}
-      <div className="border rounded-2xl bg-white shadow-sm p-3 mb-3">
-        <div className="text-sm font-semibold mb-2">Hromadný presun skladu</div>
-
-        <div className="flex gap-2">
-          <select
-            className="flex-1 border rounded-xl px-3 py-2"
-            value={bulkFrom}
-            onChange={(e) => setBulkFrom(e.target.value)}
-            disabled={bulkLoading}
-          >
-            <option value="">Zo skladu</option>
-            {skladyList.map(s => (
-              <option key={s.id} value={s.id}>{s.nazov}</option>
-            ))}
-          </select>
-
-          <select
-            className="flex-1 border rounded-xl px-3 py-2"
-            value={bulkTo}
-            onChange={(e) => setBulkTo(e.target.value)}
-            disabled={bulkLoading}
-          >
-            <option value="">Do skladu</option>
-            {skladyList
-              .filter(s => String(s.id) !== String(bulkFrom))
-              .map(s => (
-                <option key={s.id} value={s.id}>{s.nazov}</option>
-              ))}
-          </select>
-        </div>
-
-        <button
-          className="w-full border rounded-xl py-2 mt-2 font-semibold"
-          onClick={handleBulkMove}
-          disabled={bulkLoading}
-        >
-          {bulkLoading ? 'Presúvam…' : 'Presunúť všetko'}
-        </button>
-
-        <div className="text-xs opacity-60 mt-2">
-          Presunie všetky aktívne zásoby zo zvoleného skladu do druhého skladu.
-        </div>
-      </div>
+      <BulkMove skladyList={skladyList} onDone={load} />
 
       {msg && <div className="text-sm border rounded-xl p-3 mb-3 bg-white">{msg}</div>}
       {loading && <div className="text-sm opacity-70 mb-2">Načítavam…</div>}
