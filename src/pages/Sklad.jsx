@@ -520,13 +520,6 @@ export default function Sklad() {
 
       {/* 🔥 HROMADNÝ PRESUN */}
       <BulkMove skladyList={skladyList} onDone={load} />
-
-      <div className="border rounded-2xl bg-red-100 p-3 mb-3 font-bold">
-
-  TEST MERGE BLOK
-
-</div>
-      
       <MergeBatches skladyList={skladyList} onDone={load} />
 
       {msg && <div className="text-sm border rounded-xl p-3 mb-3 bg-white">{msg}</div>}
