@@ -75,6 +75,11 @@ export default function Sklad() {
   const [invSaving, setInvSaving] = useState(false)
   const [invErr, setInvErr] = useState('')
 
+  // 🔥 hromadný presun skladu
+  const [bulkFrom, setBulkFrom] = useState('')
+  const [bulkTo, setBulkTo] = useState('')
+  const [bulkLoading, setBulkLoading] = useState(false)
+
   const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
   const load = async () => {
@@ -436,11 +441,124 @@ export default function Sklad() {
     }
   }
 
+  // 🔥 HROMADNÝ PRESUN SKLADU
+  const handleBulkMove = async () => {
+    setMsg('')
+
+    const fromId = Number(bulkFrom)
+    const toId = Number(bulkTo)
+
+    if (!fromId || !toId) {
+      setMsg('Vyber sklad odkiaľ aj kam.')
+      return
+    }
+
+    if (fromId === toId) {
+      setMsg('Sklady musia byť rozdielne.')
+      return
+    }
+
+    const fromName = skladyList.find(s => Number(s.id) === fromId)?.nazov ?? `Sklad ${fromId}`
+    const toName = skladyList.find(s => Number(s.id) === toId)?.nazov ?? `Sklad ${toId}`
+
+    const countRows = rows.filter(r =>
+      Number(r.sklady?.id) === fromId &&
+      Number(r.mnozstvo) > 0
+    )
+
+    const countQty = countRows.reduce((sum, r) => sum + (Number(r.mnozstvo) || 0), 0)
+
+    if (countRows.length === 0) {
+      setMsg(`V sklade "${fromName}" nie sú aktívne zásoby na presun.`)
+      return
+    }
+
+    const ok = window.confirm(
+      `Naozaj chceš presunúť všetko zo skladu "${fromName}" do skladu "${toName}"?\n\n` +
+      `Počet šarží: ${countRows.length}\n` +
+      `Spolu kusov: ${countQty} ks\n\n` +
+      `Množstvá, ceny a expirácie ostanú nezmenené.`
+    )
+
+    if (!ok) return
+
+    setBulkLoading(true)
+    try {
+      const { error } = await supabase
+        .from('zasoby')
+        .update({ sklad_id: toId })
+        .eq('sklad_id', fromId)
+        .eq('aktivne', true)
+        .gt('mnozstvo', 0)
+
+      if (error) throw error
+
+      setRows(prev => (prev ?? []).map(r => (
+        Number(r.sklady?.id) === fromId && Number(r.mnozstvo) > 0
+          ? { ...r, sklady: { id: toId, nazov: toName } }
+          : r
+      )))
+
+      setBulkFrom('')
+      setBulkTo('')
+      setMsg(`Presun zo skladu "${fromName}" do skladu "${toName}" dokončený ✅`)
+    } catch (e) {
+      setMsg(e?.message ?? 'Chyba pri hromadnom presune skladu')
+    } finally {
+      setBulkLoading(false)
+    }
+  }
+
   return (
     <div className="max-w-md mx-auto p-4 pb-24">
       <div className="flex items-center justify-between mb-3">
         <h1 className="text-2xl font-bold">Sklad</h1>
         <button className="text-sm underline" onClick={load}>Obnoviť</button>
+      </div>
+
+      {/* 🔥 HROMADNÝ PRESUN */}
+      <div className="border rounded-2xl bg-white shadow-sm p-3 mb-3">
+        <div className="text-sm font-semibold mb-2">Hromadný presun skladu</div>
+
+        <div className="flex gap-2">
+          <select
+            className="flex-1 border rounded-xl px-3 py-2"
+            value={bulkFrom}
+            onChange={(e) => setBulkFrom(e.target.value)}
+            disabled={bulkLoading}
+          >
+            <option value="">Zo skladu</option>
+            {skladyList.map(s => (
+              <option key={s.id} value={s.id}>{s.nazov}</option>
+            ))}
+          </select>
+
+          <select
+            className="flex-1 border rounded-xl px-3 py-2"
+            value={bulkTo}
+            onChange={(e) => setBulkTo(e.target.value)}
+            disabled={bulkLoading}
+          >
+            <option value="">Do skladu</option>
+            {skladyList
+              .filter(s => String(s.id) !== String(bulkFrom))
+              .map(s => (
+                <option key={s.id} value={s.id}>{s.nazov}</option>
+              ))}
+          </select>
+        </div>
+
+        <button
+          className="w-full border rounded-xl py-2 mt-2 font-semibold"
+          onClick={handleBulkMove}
+          disabled={bulkLoading}
+        >
+          {bulkLoading ? 'Presúvam…' : 'Presunúť všetko'}
+        </button>
+
+        <div className="text-xs opacity-60 mt-2">
+          Presunie všetky aktívne zásoby zo zvoleného skladu do druhého skladu.
+        </div>
       </div>
 
       {msg && <div className="text-sm border rounded-xl p-3 mb-3 bg-white">{msg}</div>}
