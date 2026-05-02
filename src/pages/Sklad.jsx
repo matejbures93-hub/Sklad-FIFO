@@ -4,14 +4,6 @@ import BulkMove from '../components/BulkMove'
 import MergeBatches from '../components/MergeBatches'
 import { formatExp, fmtEur, parseEur, parseIntSafe, expStatus } from '../utils/skladUtils'
 
-function expStatus(exp) {
-  const d = daysUntil(exp)
-  if (d === null) return { dot: 'bg-gray-400', label: '—' }
-  if (d < 0) return { dot: 'bg-red-500', label: 'EXPIROVANÉ' }
-  if (d <= 60) return { dot: 'bg-orange-500', label: 'Do 2 mesiacov' }
-  return { dot: 'bg-green-500', label: 'OK' }
-}
-
 export default function Sklad() {
   const [rows, setRows] = useState([])
   const [msg, setMsg] = useState('')
