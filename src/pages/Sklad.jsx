@@ -2,38 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../services/supabase'
 import BulkMove from '../components/BulkMove'
 import MergeBatches from '../components/MergeBatches'
-
-function formatExp(exp) {
-  if (!exp) return ''
-  const [y, m] = exp.split('-')
-  return `${m}/${y}`
-}
-
-function fmtEur(v) {
-  if (v === null || v === undefined || v === '') return '—'
-  const n = Number(v)
-  if (Number.isNaN(n)) return '—'
-  return `${n.toFixed(2)} €`
-}
-
-function parseEur(s) {
-  const n = Number(String(s ?? '').trim().replace(',', '.'))
-  return Number.isFinite(n) ? n : NaN
-}
-
-function parseIntSafe(s) {
-  const n = Number(String(s ?? '').replace(/[^\d]/g, ''))
-  return Number.isFinite(n) ? Math.floor(n) : NaN
-}
-
-function daysUntil(dateStr) {
-  if (!dateStr) return null
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const d = new Date(dateStr)
-  d.setHours(0, 0, 0, 0)
-  return Math.floor((d - today) / (1000 * 60 * 60 * 24))
-}
+import { formatExp, fmtEur, parseEur, parseIntSafe, expStatus } from '../utils/skladUtils'
 
 function expStatus(exp) {
   const d = daysUntil(exp)
