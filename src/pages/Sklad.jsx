@@ -461,12 +461,15 @@ export default function Sklad() {
 />
 
       <InventoryModal
-  invOpen={invOpen}
-  invSaving={invSaving}
-  invErr={invErr}
-  invRow={invRow}
-  invQty={invQty}
-  setInvQty={setInvQty}
-  closeInv={closeInv}
-  saveInv={saveInv}
-/>
+        invOpen={invOpen}
+        invSaving={invSaving}
+        invErr={invErr}
+        invRow={invRow}
+        invQty={invQty}
+        setInvQty={setInvQty}
+        closeInv={closeInv}
+        saveInv={saveInv}
+      />
+    </div>
+  )
+}
