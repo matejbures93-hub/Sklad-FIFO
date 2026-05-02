@@ -4,6 +4,11 @@ import BulkMove from '../components/BulkMove'
 import MergeBatches from '../components/MergeBatches'
 import { formatExp, fmtEur, parseEur, parseIntSafe, expStatus } from '../utils/skladUtils'
 import EditPriceModal from '../components/sklad/EditPriceModal'
+import InventoryModal from '../components/sklad/InventoryModal'
+import MoveBatchModal from '../components/sklad/MoveBatchModal'
+import SkladFilters from '../components/sklad/SkladFilters'
+import ProductCard from '../components/sklad/ProductCard'
+import useSkladGrouped from '../hooks/useSkladGrouped'
 
 export default function Sklad() {
   const [rows, setRows] = useState([])
@@ -91,104 +96,14 @@ export default function Sklad() {
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'sk'))
   }, [rows])
 
-  const grouped = useMemo(() => {
-    const query = q.trim().toLowerCase()
-    const pick = (letter || '').trim().toUpperCase()
-
-    const filtered = rows.filter(r => {
-      const nazovRaw = r.produkty?.nazov ?? ''
-      const nazov = nazovRaw.toLowerCase()
-      const nazovUpper = nazovRaw.toUpperCase()
-
-      const skladN = r.sklady?.nazov ?? ''
-      const st = expStatus(r.expiracia)
-
-      if (pick && !nazovUpper.startsWith(pick)) return false
-      if (query && !nazov.includes(query)) return false
-      if (skladFilter && skladN !== skladFilter) return false
-      if (!showExpired && st.label === 'EXPIROVANÉ') return false
-      if (onlyCritical && !(st.label === 'EXPIROVANÉ' || st.label === 'Do 2 mesiacov')) return false
-
-      return true
-    })
-
-    const map = new Map()
-
-    for (const r of filtered) {
-      const pid = r.produkty?.id ?? 'x'
-      const pName = r.produkty?.nazov ?? '—'
-      const key = `${pid}:${pName}`
-
-      const qty = Number(r.mnozstvo) || 0
-      const buy = Number(r.nakupna_cena)
-      const value = Number.isFinite(buy) ? Math.round(buy * qty * 100) / 100 : null
-
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          produkt_id: pid,
-          produkt_nazov: pName,
-          totalQty: 0,
-          nearestExp: null,
-          hasExpired: false,
-          hasCritical: false,
-          totalValue: 0,
-          valueKnown: true,
-          bySklad: new Map(),
-        })
-      }
-
-      const g = map.get(key)
-      g.totalQty += qty
-
-      if (r.expiracia && (!g.nearestExp || r.expiracia < g.nearestExp)) g.nearestExp = r.expiracia
-
-      const st = expStatus(r.expiracia)
-      if (st.label === 'EXPIROVANÉ') g.hasExpired = true
-      if (st.label === 'EXPIROVANÉ' || st.label === 'Do 2 mesiacov') g.hasCritical = true
-
-      if (value === null) g.valueKnown = false
-      else g.totalValue = Math.round((g.totalValue + value) * 100) / 100
-
-      const sid = r.sklady?.id ?? 'x'
-      const sName = r.sklady?.nazov ?? '—'
-      const sKey = `${sid}:${sName}`
-
-      if (!g.bySklad.has(sKey)) {
-        g.bySklad.set(sKey, {
-          sklad_id: sid,
-          sklad_nazov: sName,
-          totalQty: 0,
-          nearestExp: null,
-          rows: [],
-        })
-      }
-
-      const sg = g.bySklad.get(sKey)
-      sg.totalQty += qty
-      if (r.expiracia && (!sg.nearestExp || r.expiracia < sg.nearestExp)) sg.nearestExp = r.expiracia
-      sg.rows.push(r)
-    }
-
-    const arr = Array.from(map.values()).map(g => ({
-      ...g,
-      bySkladArr: Array.from(g.bySklad.values()).sort((a, b) =>
-        (a.sklad_nazov ?? '').localeCompare(b.sklad_nazov ?? '', 'sk')
-      ),
-    }))
-
-    arr.sort((a, b) => {
-      const ac = a.hasCritical ? 0 : 1
-      const bc = b.hasCritical ? 0 : 1
-      if (ac !== bc) return ac - bc
-      const ae = a.nearestExp || '9999-12-31'
-      const be = b.nearestExp || '9999-12-31'
-      if (ae !== be) return ae < be ? -1 : 1
-      return a.produkt_nazov.localeCompare(b.produkt_nazov, 'sk')
-    })
-
-    return arr
-  }, [rows, q, letter, skladFilter, onlyCritical, showExpired])
+  const grouped = useSkladGrouped({
+   rows,
+    q,
+    letter,
+    skladFilter,
+    onlyCritical,
+    showExpired,
+ })
 
   const topSummary = useMemo(() => {
     const totalProducts = grouped.length
@@ -487,189 +402,39 @@ export default function Sklad() {
       {msg && <div className="text-sm border rounded-xl p-3 mb-3 bg-white">{msg}</div>}
       {loading && <div className="text-sm opacity-70 mb-2">Načítavam…</div>}
 
-      <div className="border rounded-2xl bg-white shadow-sm p-3 mb-3">
-        <div className="space-y-2">
-          <div className="flex flex-wrap gap-1">
-            {letters.map(l => (
-              <button
-                key={l}
-                className={`px-2 py-1 rounded-lg text-sm font-semibold border ${
-                  letter === l ? 'bg-black text-white' : 'bg-white'
-                }`}
-                onClick={() => setLetter(l)}
-              >
-                {l}
-              </button>
-            ))}
-            <button
-              className="px-2 py-1 rounded-lg text-sm border bg-white"
-              onClick={() => setLetter('')}
-              title="Zrušiť písmeno"
-            >
-              ✕
-            </button>
-          </div>
+<SkladFilters
+  letters={letters}
+  letter={letter}
+  setLetter={setLetter}
+  q={q}
+  setQ={setQ}
+  skladFilter={skladFilter}
+  setSkladFilter={setSkladFilter}
+  skladyOptions={skladyOptions}
+  onlyCritical={onlyCritical}
+  setOnlyCritical={setOnlyCritical}
+  showExpired={showExpired}
+  setShowExpired={setShowExpired}
+  topSummary={topSummary}
+/>
 
-          <input
-            className="w-full border rounded-xl px-3 py-2"
-            placeholder="🔍 Vyhľadať produkt…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-
-          <div className="flex gap-2">
-            <select
-              className="flex-1 border rounded-xl px-3 py-2"
-              value={skladFilter}
-              onChange={(e) => setSkladFilter(e.target.value)}
-            >
-              <option value="">Všetky sklady</option>
-              {skladyOptions.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-
-            <button
-              className={`px-3 py-2 rounded-xl border text-sm font-semibold ${
-                onlyCritical ? 'bg-orange-50' : 'bg-white'
-              }`}
-              onClick={() => setOnlyCritical(v => !v)}
-            >
-              Kritické
-            </button>
-
-            <button
-              className={`px-3 py-2 rounded-xl border text-sm font-semibold ${
-                showExpired ? 'bg-white' : 'bg-gray-50'
-              }`}
-              onClick={() => setShowExpired(v => !v)}
-            >
-              EXP
-            </button>
-          </div>
-
-          <div className="text-xs opacity-70">
-            Produkty: <b>{topSummary.totalProducts}</b> · Spolu ks: <b>{topSummary.totalQty}</b> · Kritické: <b>{topSummary.criticalCount}</b>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        {grouped.length === 0 && !loading ? (
-          <div className="text-sm opacity-70">Nič sa nenašlo.</div>
-        ) : (
-          grouped.map(g => {
-            const isOpen = openKey === g.key
-
-            const st = isOpen
-              ? (g.hasExpired
-                  ? { dot: 'bg-red-500', label: 'EXPIROVANÉ' }
-                  : g.hasCritical
-                    ? { dot: 'bg-orange-500', label: 'Do 2 mesiacov' }
-                    : { dot: 'bg-green-500', label: 'OK' })
-              : null
-
-            return (
-              <div key={g.key} className="border rounded-2xl p-4 bg-white">
-                <button className="w-full text-left" onClick={() => setOpenKey(isOpen ? '' : g.key)}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-lg font-bold truncate">{g.produkt_nazov}</div>
-                      <div className="text-sm opacity-70 mt-1">
-                        Spolu: <b>{g.totalQty} ks</b> · Najbližší EXP: <b>{g.nearestExp ? formatExp(g.nearestExp) : '—'}</b>
-                      </div>
-                      <div className="text-sm opacity-70 mt-1">
-                        Cena spolu: <b>{g.valueKnown ? fmtEur(g.totalValue) : '—'}</b>
-                      </div>
-                    </div>
-
-                    <div className="shrink-0 flex flex-col items-end">
-                      {st ? (
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-block w-3 h-3 rounded-full ${st.dot}`} />
-                          <div className="text-xs font-semibold">{st.label}</div>
-                        </div>
-                      ) : (
-                        <div className="h-[14px]" />
-                      )}
-                      <div className="text-xs opacity-60 mt-2">{isOpen ? 'Skryť' : 'Detail'}</div>
-                    </div>
-                  </div>
-                </button>
-
-                {isOpen && (
-                  <div className="mt-3 space-y-3">
-                    {g.bySkladArr.map(sg => (
-                      <div key={`${sg.sklad_id}:${sg.sklad_nazov}`} className="border rounded-xl p-3 bg-gray-50">
-                        <div className="flex items-center justify-between">
-                          <div className="text-sm font-semibold">{sg.sklad_nazov}</div>
-                          <div className="text-sm">
-                            <b>{sg.totalQty} ks</b> · EXP <b>{sg.nearestExp ? formatExp(sg.nearestExp) : '—'}</b>
-                          </div>
-                        </div>
-
-                        <div className="mt-2 space-y-2">
-                          {sg.rows.map(r => {
-                            const st2 = expStatus(r.expiracia)
-                            const qty = Number(r.mnozstvo) || 0
-                            const buy = Number(r.nakupna_cena)
-                            const total = Number.isFinite(buy) ? Math.round(buy * qty * 100) / 100 : null
-
-                            return (
-                              <div key={r.id} className="border rounded-xl p-3 bg-white">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <span className={`inline-block w-2.5 h-2.5 rounded-full ${st2.dot}`} />
-                                      <div className="text-sm font-semibold">
-                                        EXP {formatExp(r.expiracia) || '—'}
-                                      </div>
-                                    </div>
-                                    <div className="text-xs opacity-70 mt-1">{st2.label}</div>
-                                  </div>
-
-                                  <div className="text-right shrink-0">
-                                    <div className="text-sm font-semibold">{qty} ks</div>
-                                    <div className="flex flex-wrap items-center justify-end gap-3 mt-1">
-                                      <button
-                                        className="text-xs underline"
-                                        onClick={() => openEdit(r)}
-                                        title="Upraviť nákupnú cenu"
-                                      >
-                                        ✏️ Cena
-                                      </button>
-                                      <button
-                                        className="text-xs underline"
-                                        onClick={() => openMove(r)}
-                                        title="Presunúť šaržu do iného skladu"
-                                      >
-                                        ↔ Presunúť
-                                      </button>
-                                      <button
-                                        className="text-xs underline"
-                                        onClick={() => openInv(r)}
-                                        title="Inventúra šarže"
-                                      >
-                                        🧮 Inventúra
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="text-sm opacity-80 mt-2">
-                                  Nákup: <b>{fmtEur(buy)}</b> / ks · Hodnota: <b>{total !== null ? fmtEur(total) : '—'}</b>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })
-        )}
-      </div>
+<div className="space-y-3">
+  {grouped.length === 0 && !loading ? (
+    <div className="text-sm opacity-70">Nič sa nenašlo.</div>
+  ) : (
+    grouped.map(g => (
+      <ProductCard
+        key={g.key}
+        g={g}
+        isOpen={openKey === g.key}
+        setOpenKey={setOpenKey}
+        openEdit={openEdit}
+        openMove={openMove}
+        openInv={openInv}
+      />
+    ))
+  )}
+</div>
 
       <EditPriceModal
   editOpen={editOpen}
@@ -681,101 +446,27 @@ export default function Sklad() {
   saveEdit={saveEdit}
 />
 
-      {moveOpen && (
-        <div className="fixed inset-0 z-[80]">
-          <button className="absolute inset-0 bg-black/40" onClick={closeMove} aria-label="Zavrieť" />
-          <div className="absolute left-1/2 top-1/2 w-[92%] max-w-sm -translate-x-1/2 -translate-y-1/2 bg-white border rounded-2xl shadow-2xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-base font-semibold">Presunúť šaržu</div>
-              <button className="text-sm underline" onClick={closeMove} disabled={moveSaving}>Zavrieť</button>
-            </div>
+     <MoveBatchModal
+  moveOpen={moveOpen}
+  moveSaving={moveSaving}
+  moveErr={moveErr}
+  moveRow={moveRow}
+  moveQty={moveQty}
+  setMoveQty={setMoveQty}
+  moveTargetSkladId={moveTargetSkladId}
+  setMoveTargetSkladId={setMoveTargetSkladId}
+  skladyList={skladyList}
+  closeMove={closeMove}
+  saveMove={saveMove}
+/>
 
-            <div className="text-sm opacity-70">
-              Produkt: <b>{moveRow?.produkty?.nazov ?? '—'}</b><br />
-              Zo skladu: <b>{moveRow?.sklady?.nazov ?? '—'}</b><br />
-              EXP: <b>{formatExp(moveRow?.expiracia) || '—'}</b> · Dostupné: <b>{Number(moveRow?.mnozstvo) || 0} ks</b>
-            </div>
-
-            <div className="mt-3">
-              <div className="text-sm font-semibold mb-1">Cieľový sklad</div>
-              <select
-                className="w-full border rounded-xl px-3 py-2"
-                value={moveTargetSkladId}
-                onChange={(e) => setMoveTargetSkladId(e.target.value)}
-                disabled={moveSaving}
-              >
-                <option value="">— vyber —</option>
-                {skladyList
-                  .filter(s => Number(s.id) !== Number(moveRow?.sklady?.id))
-                  .map(s => (
-                    <option key={s.id} value={s.id}>{s.nazov}</option>
-                  ))}
-              </select>
-            </div>
-
-            <div className="mt-3">
-              <div className="text-sm font-semibold mb-1">Množstvo (ks)</div>
-              <input
-                inputMode="numeric"
-                className="w-full border rounded-xl px-3 py-3 text-lg"
-                placeholder="napr. 5"
-                value={moveQty}
-                onChange={(e) => setMoveQty(e.target.value.replace(/[^\d]/g, ''))}
-                disabled={moveSaving}
-              />
-              <div className="text-xs opacity-60 mt-1">
-                Tip: ak zadáš celé množstvo, šarža sa len “presunie”. Ak zadáš menej, šarža sa rozdelí.
-              </div>
-            </div>
-
-            {moveErr && <div className="text-sm border rounded-xl p-2 mt-3 bg-white">{moveErr}</div>}
-
-            <button className="w-full border rounded-xl py-3 text-lg font-semibold mt-3" onClick={saveMove} disabled={moveSaving}>
-              {moveSaving ? 'Presúvam…' : 'Presunúť'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {invOpen && (
-        <div className="fixed inset-0 z-[80]">
-          <button className="absolute inset-0 bg-black/40" onClick={closeInv} aria-label="Zavrieť" />
-          <div className="absolute left-1/2 top-1/2 w-[92%] max-w-sm -translate-x-1/2 -translate-y-1/2 bg-white border rounded-2xl shadow-2xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-base font-semibold">Inventúra šarže</div>
-              <button className="text-sm underline" onClick={closeInv} disabled={invSaving}>Zavrieť</button>
-            </div>
-
-            <div className="text-sm opacity-70">
-              Produkt: <b>{invRow?.produkty?.nazov ?? '—'}</b><br />
-              Sklad: <b>{invRow?.sklady?.nazov ?? '—'}</b><br />
-              EXP: <b>{formatExp(invRow?.expiracia) || '—'}</b><br />
-              Aktuálne v systéme: <b>{Number(invRow?.mnozstvo) || 0} ks</b>
-            </div>
-
-            <div className="mt-3">
-              <div className="text-sm font-semibold mb-1">Reálne množstvo (ks)</div>
-              <input
-                inputMode="numeric"
-                className="w-full border rounded-xl px-3 py-3 text-lg"
-                placeholder="napr. 5"
-                value={invQty}
-                onChange={(e) => setInvQty(e.target.value.replace(/[^\d]/g, ''))}
-                disabled={invSaving}
-              />
-              <div className="text-xs opacity-60 mt-1">
-                Ak zadáš 0, šarža sa deaktivuje a zmizne zo skladu.
-              </div>
-            </div>
-
-            {invErr && <div className="text-sm border rounded-xl p-2 mt-3 bg-white">{invErr}</div>}
-
-            <button className="w-full border rounded-xl py-3 text-lg font-semibold mt-3" onClick={saveInv} disabled={invSaving}>
-              {invSaving ? 'Ukladám…' : 'Uložiť inventúru'}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+      <InventoryModal
+  invOpen={invOpen}
+  invSaving={invSaving}
+  invErr={invErr}
+  invRow={invRow}
+  invQty={invQty}
+  setInvQty={setInvQty}
+  closeInv={closeInv}
+  saveInv={saveInv}
+/>
