@@ -9,7 +9,7 @@ import MoveBatchModal from '../components/sklad/MoveBatchModal'
 import SkladFilters from '../components/sklad/SkladFilters'
 import ProductCard from '../components/sklad/ProductCard'
 import useSkladGrouped from '../hooks/useSkladGrouped'
-import { mergeSameBatch } from '../services/mergeSameBatch'
+import mergeSameBatch from '../services/mergeSameBatch'
 
 export default function Sklad() {
   const [rows, setRows] = useState([])
@@ -275,8 +275,16 @@ return
         return list
       })
 
-      setMsg('Presunuté ✅')
-      closeMove()
+      await mergeSameBatch({
+  produktId,
+  skladId: toSkladId,
+  expiracia: r?.expiracia ?? null,
+  nakupna_cena: r?.nakupna_cena ?? null,
+})
+
+setMsg('Presunuté a zlúčené ✅')
+await load()
+closeMove()
     } catch (e) {
       setMoveErr(e?.message ?? 'Chyba pri presune')
     } finally {
