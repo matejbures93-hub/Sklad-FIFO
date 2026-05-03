@@ -217,6 +217,7 @@ export default function Predaj() {
           produkt_nazov: produktNazov,
           sklad_id: chosenSklad.sklad_id,
           sklad_nazov: chosenSklad.sklad_nazov,
+          expiracia: chosenSklad.nearestExp ?? null,
           qty: q,
           cena_ks: price,
           suma,
@@ -353,18 +354,24 @@ export default function Predaj() {
 
       // 2) položky: FEFO odpočet + insert
       for (const item of cart) {
-        await fefoDeduct(item.produkt_id, item.sklad_id, item.qty)
+  const taken = await fefoDeduct(item.produkt_id, item.sklad_id, item.qty)
 
-        const insItem = await supabase.from('predajky_polozky').insert({
-          predajka_id: predajkaId,
-          produkt_id: item.produkt_id,
-          sklad_id: item.sklad_id,
-          mnozstvo: item.qty,
-          cena_ks: item.cena_ks,
-          suma: item.suma,
-        })
-        if (insItem.error) throw insItem.error
-      }
+  for (const t of taken) {
+    const partSum = round2(Number(item.cena_ks) * Number(t.mnozstvo))
+
+    const insItem = await supabase.from('predajky_polozky').insert({
+      predajka_id: predajkaId,
+      produkt_id: item.produkt_id,
+      sklad_id: item.sklad_id,
+      mnozstvo: t.mnozstvo,
+      cena_ks: item.cena_ks,
+      suma: partSum,
+      expiracia: t.expiracia,
+    })
+
+    if (insItem.error) throw insItem.error
+  }
+}
 
       // reset košíka a výberov
       setCart([])
@@ -598,7 +605,9 @@ export default function Predaj() {
               {cart.map((i, idx) => (
                 <div key={idx} className="border rounded-xl p-3">
                   <div className="text-lg font-bold">{i.produkt_nazov}</div>
-                  <div className="text-sm opacity-80">{i.sklad_nazov}</div>
+                  <div className="text-sm opacity-80">
+                    {i.sklad_nazov} · EXP {i.expiracia ? formatExp(i.expiracia) : '—'}
+                  </div>
                   <div className="text-base mt-1">
                     {i.qty} ks × {Number(i.cena_ks).toFixed(2)} € = <span className="font-semibold">{Number(i.suma).toFixed(2)} €</span>
                   </div>
