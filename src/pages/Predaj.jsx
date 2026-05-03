@@ -234,35 +234,54 @@ export default function Predaj() {
 
   // FEFO odpočet zásob pre konkrétny produkt+sklad
   const fefoDeduct = async (pid, sid, qty) => {
-    const { data, error } = await supabase
-      .from('zasoby')
-      .select('id, expiracia, mnozstvo')
-      .eq('produkt_id', pid)
-      .eq('sklad_id', sid)
-      .eq('aktivne', true)
-      .gt('mnozstvo', 0)
-      .order('expiracia', { ascending: true })
-      .order('id', { ascending: true })
+  const { data, error } = await supabase
+    .from('zasoby')
+    .select('id, expiracia, mnozstvo')
+    .eq('produkt_id', pid)
+    .eq('sklad_id', sid)
+    .eq('aktivne', true)
+    .gt('mnozstvo', 0)
+    .order('expiracia', { ascending: true })
+    .order('id', { ascending: true })
 
-    if (error) throw error
-    const list = data ?? []
+  if (error) throw error
 
-    const available = list.reduce((sum, r) => sum + (Number(r.mnozstvo) || 0), 0)
-    if (available < qty) throw new Error(`Nedostatok na sklade (Sklad ${sid}). Dostupné: ${available} ks, chceš: ${qty} ks.`)
+  const list = data ?? []
+  const available = list.reduce((sum, r) => sum + (Number(r.mnozstvo) || 0), 0)
 
-    let remaining = qty
-    for (const r of list) {
-      if (remaining <= 0) break
-      const have = Number(r.mnozstvo) || 0
-      const take = Math.min(have, remaining)
-      const newQty = have - take
-      remaining -= take
-
-      const patch = { mnozstvo: newQty, aktivne: newQty > 0 }
-      const upd = await supabase.from('zasoby').update(patch).eq('id', r.id)
-      if (upd.error) throw upd.error
-    }
+  if (available < qty) {
+    throw new Error(`Nedostatok na sklade (Sklad ${sid}). Dostupné: ${available} ks, chceš: ${qty} ks.`)
   }
+
+  let remaining = qty
+  const taken = []
+
+  for (const r of list) {
+    if (remaining <= 0) break
+
+    const have = Number(r.mnozstvo) || 0
+    const take = Math.min(have, remaining)
+    const newQty = have - take
+
+    remaining -= take
+
+    const patch = { mnozstvo: newQty, aktivne: newQty > 0 }
+
+    const upd = await supabase
+      .from('zasoby')
+      .update(patch)
+      .eq('id', r.id)
+
+    if (upd.error) throw upd.error
+
+    taken.push({
+      mnozstvo: take,
+      expiracia: r.expiracia ?? null,
+    })
+  }
+
+  return taken
+}
 
   const createCustomerQuick = async () => {
     setMsg('')
