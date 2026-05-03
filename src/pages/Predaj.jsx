@@ -508,13 +508,18 @@ export default function Predaj() {
             <div className="text-sm opacity-70">Sklad pre tento produkt</div>
 
             <div className="mt-2">
-              <div className="text-sm font-semibold mb-1">Vybrať sklad (voliteľné)</div>
+              <div className="text-sm font-semibold mb-1">
+                Sklad vyberá systém automaticky podľa najbližšej EXP
+              </div>
+              <div className="text-xs opacity-60 mb-1">
+                Ručne zmeň iba vtedy, ak chceš predať z iného skladu.
+              </div>
               <select
                 className="w-full border rounded-xl px-3 py-2"
                 value={overrideSkladId}
                 onChange={(e) => setOverrideSkladId(e.target.value)}
               >
-                <option value="">Odporúčaný (najbližší EXP)</option>
+                <option value="">Automaticky: najbližší EXP</option>
                 {skladSummary.map(s => (
                   <option key={s.sklad_id} value={s.sklad_id}>
                     {s.sklad_nazov} — {s.total} ks — EXP {s.nearestExp ? formatExp(s.nearestExp) : '—'}
