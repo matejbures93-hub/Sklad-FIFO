@@ -14,6 +14,12 @@ function fmtEur(v) {
   return `${n.toFixed(2)} €`
 }
 
+function formatExp(exp) {
+  if (!exp) return '—'
+  const [y, m] = String(exp).split('-')
+  return `${m}/${y}`
+}
+
 export default function Historia() {
   const [q, setQ] = useState('')
   const [limit, setLimit] = useState(200)
@@ -59,6 +65,7 @@ export default function Historia() {
           mnozstvo,
           cena_ks,
           suma,
+          expiracia,
           produkty(nazov),
           sklady(nazov)
         `)
@@ -193,7 +200,9 @@ export default function Historia() {
                         items.map(it => (
                           <div key={it.id} className="border rounded-xl p-3">
                             <div className="text-base font-semibold">{it.produkty?.nazov ?? '—'}</div>
-                            <div className="text-sm opacity-70">{it.sklady?.nazov ?? '—'}</div>
+                            <div className="text-sm opacity-70">
+                              {it.sklady?.nazov ?? '—'} · EXP {formatExp(it.expiracia)}
+                            </div>
                             <div className="text-base mt-1">
                               {it.mnozstvo} ks × {fmtEur(it.cena_ks)} = <span className="font-semibold">{fmtEur(it.suma)}</span>
                             </div>
