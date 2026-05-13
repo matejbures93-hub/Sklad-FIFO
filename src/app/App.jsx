@@ -9,6 +9,7 @@ import Produkty from '../pages/Produkty.jsx'
 import Naskladnit from '../pages/Naskladnit.jsx'
 import Historia from '../pages/Historia.jsx'
 import Sklad from '../pages/Sklad.jsx'
+import Dashboard from '../pages/Dashboard.jsx'
 
 function AuthedLayout() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/naskladnit" element={<Naskladnit />} />
         <Route path="/historia" element={<Historia />} />
         <Route path="/sklad" element={<Sklad />} />
+        <Route path="/dashboard" element={<Dashboard />} />
       </Route>
     </Routes>
   )
