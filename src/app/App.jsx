@@ -37,7 +37,7 @@ export default function App() {
         <Route path="/naskladnit" element={<Naskladnit />} />
         <Route path="/historia" element={<Historia />} />
         <Route path="/sklad" element={<Sklad />} />
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="dashboard" element={<Dashboard />} />
       </Route>
     </Routes>
   )
