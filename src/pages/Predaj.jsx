@@ -353,12 +353,11 @@ export default function Predaj() {
       if (!predajkaId) throw new Error('Nepodarilo sa vytvoriť predajku')
 
       // 2) položky: FEFO odpočet + insert
+
       for (const item of cart) {
-  const taken = await fefoDeduct(item.produkt_id, item.sklad_id, item.qty)
-
-  for (const t of taken) {
+        const taken = await fefoDeduct(item.produkt_id, item.sklad_id, item.qty)
+      for (const t of taken) {
     const partSum = round2(Number(item.cena_ks) * Number(t.mnozstvo))
-
     const insItem = await supabase.from('predajky_polozky').insert({
       predajka_id: predajkaId,
       produkt_id: item.produkt_id,
@@ -368,7 +367,6 @@ export default function Predaj() {
       suma: partSum,
       expiracia: t.expiracia,
     })
-
     if (insItem.error) throw insItem.error
   }
 }
