@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../services/supabase'
 import { formatExp, fmtEur, expStatus } from '../utils/skladUtils'
+import StatCard from '../components/dashboard/StatCard'
+import ExpOverview from '../components/dashboard/ExpOverview'
+import CriticalItems from '../components/dashboard/CriticalItems'
+import LowStock from '../components/dashboard/LowStock'
+import TopValue from '../components/dashboard/TopValue'
+import WarehouseValue from '../components/dashboard/WarehouseValue'
+
 
 export default function Dashboard() {
   const [rows, setRows] = useState([])
@@ -126,6 +133,27 @@ export default function Dashboard() {
       .slice(0, 10)
   }, [rows])
 
+  const warehouseValue = useMemo(() => {
+  const map = new Map()
+
+  for (const r of rows) {
+    const sid = r.sklady?.id ?? 'x'
+    const name = r.sklady?.nazov ?? '—'
+    const qty = Number(r.mnozstvo) || 0
+    const buy = Number(r.nakupna_cena)
+
+    if (!map.has(sid)) map.set(sid, { name, value: 0, qty: 0 })
+
+    const g = map.get(sid)
+    g.qty += qty
+    if (Number.isFinite(buy)) g.value += buy * qty
+  }
+
+  return Array.from(map.values())
+    .map(x => ({ ...x, value: Math.round(x.value * 100) / 100 }))
+    .sort((a, b) => b.value - a.value)
+}, [rows])
+
   return (
     <div className="max-w-md mx-auto p-4 pb-24">
       <div className="flex items-center justify-between mb-3">
@@ -137,93 +165,26 @@ export default function Dashboard() {
       {loading && <div className="text-sm opacity-70 mb-2">Načítavam…</div>}
 
       <div className="grid grid-cols-2 gap-3 mb-3">
-        <div className="border rounded-2xl bg-white shadow-sm p-4">
-          <div className="text-xs opacity-60">💰 Hodnota skladu</div>
-          <div className="text-xl font-bold mt-1">{fmtEur(stats.totalValue)}</div>
-        </div>
-
-        <div className="border rounded-2xl bg-white shadow-sm p-4">
-          <div className="text-xs opacity-60">📦 Kusov spolu</div>
-          <div className="text-xl font-bold mt-1">{stats.totalQty} ks</div>
-        </div>
-
-        <div className="border rounded-2xl bg-white shadow-sm p-4">
-          <div className="text-xs opacity-60">🧴 Produktov</div>
-          <div className="text-xl font-bold mt-1">{stats.totalProducts}</div>
-        </div>
-
-        <div className="border rounded-2xl bg-white shadow-sm p-4">
-          <div className="text-xs opacity-60">⚠️ Kritické</div>
-          <div className="text-xl font-bold mt-1">{stats.critical}</div>
-        </div>
+        <StatCard label="💰 Hodnota skladu" value={fmtEur(stats.totalValue)} />
+        <StatCard label="📦 Kusov spolu" value={`${stats.totalQty} ks`} />
+        <StatCard label="🧴 Produktov" value={stats.totalProducts} />
+        <StatCard label="⚠️ Kritické" value={stats.critical} />
       </div>
 
-      <div className="border rounded-2xl bg-white shadow-sm p-4 mb-3">
-        <div className="text-base font-bold mb-2">EXP prehľad</div>
-        <div className="text-sm">🔴 Expirované: <b>{stats.expired}</b></div>
-        <div className="text-sm mt-1">🟠 Do 30 dní: <b>{stats.within30}</b></div>
-        <div className="text-sm mt-1">🟡 Do 60 dní: <b>{stats.within60}</b></div>
-      </div>
+      <ExpOverview
+        expired={stats.expired}
+        within30={stats.within30}
+        within60={stats.within60}
+      />
 
-      <div className="border rounded-2xl bg-white shadow-sm p-4 mb-3">
-        <div className="text-base font-bold mb-2">Kritické položky</div>
+      <CriticalItems items={criticalRows} />
 
-        {criticalRows.length === 0 ? (
-          <div className="text-sm opacity-70">Žiadne kritické položky ✅</div>
-        ) : (
-          <div className="space-y-2">
-            {criticalRows.map(r => {
-              const st = expStatus(r.expiracia)
-              return (
-                <div key={r.id} className="border rounded-xl p-3">
-                  <div className="font-semibold">{r.produkty?.nazov ?? '—'}</div>
-                  <div className="text-sm opacity-70">
-                    {r.sklady?.nazov ?? '—'} · EXP {formatExp(r.expiracia)}
-                  </div>
-                  <div className="text-sm mt-1">
-                    {Number(r.mnozstvo) || 0} ks · {st.label}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+      <LowStock items={lowStock} />
 
-      <div className="border rounded-2xl bg-white shadow-sm p-4 mb-3">
-        <div className="text-base font-bold mb-2">Nízky stav</div>
+      <WarehouseValue items={warehouseValue} />
 
-        {lowStock.length === 0 ? (
-          <div className="text-sm opacity-70">Žiadny nízky stav ✅</div>
-        ) : (
-          <div className="space-y-2">
-            {lowStock.map(x => (
-              <div key={x.name} className="flex justify-between border rounded-xl p-3">
-                <div className="font-semibold">{x.name}</div>
-                <div>{x.qty} ks</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="border rounded-2xl bg-white shadow-sm p-4">
-        <div className="text-base font-bold mb-2">Top hodnota skladu</div>
-
-        {topValue.length === 0 ? (
-          <div className="text-sm opacity-70">Žiadne dáta.</div>
-        ) : (
-          <div className="space-y-2">
-            {topValue.map(x => (
-              <div key={x.name} className="border rounded-xl p-3">
-                <div className="font-semibold">{x.name}</div>
-                <div className="text-sm opacity-70">{x.qty} ks</div>
-                <div className="text-sm font-semibold mt-1">{fmtEur(x.value)}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <TopValue items={topValue} />
+      
     </div>
   )
 }
