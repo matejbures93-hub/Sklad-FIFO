@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 
 const items = [
-  { to: '/', label: 'Predaj', icon: '⚡' },
+  { to: '/', label: 'Predaj', icon: '🛒' },
   { to: '/zakaznici', label: 'Zákazníci', icon: '👥' },
   { to: '/produkty', label: 'Produkty', icon: '📦' },
   { to: '/naskladnit', label: 'Naskladniť', icon: '➕' },
   { to: '/historia', label: 'História', icon: '🕒' },
-  { to: '/sklad', label: 'Sklad', icon: '🏬' },
+  { to: '/sklad', label: 'Sklad', icon: '🏢' },
+  { to: '/dashboard', label: 'Dashboard', icon: '📊' },
 ]
 
 function LinkItem({ to, icon, label, onClick }) {
