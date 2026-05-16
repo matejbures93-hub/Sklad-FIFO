@@ -23,6 +23,17 @@ function fmtEur(v) {
   return `${n.toFixed(2)} €`
 }
 
+function todayYmd() {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d.toISOString().slice(0, 10)
+}
+
+function isExpired(exp) {
+  if (!exp) return false
+  return exp < todayYmd()
+}
+
 export default function Predaj() {
   const [produkty, setProdukty] = useState([])
   const [produktId, setProduktId] = useState('')
@@ -37,6 +48,9 @@ export default function Predaj() {
 
   // sklad výber (default odporúčaný)
   const [overrideSkladId, setOverrideSkladId] = useState('')
+
+  // konkrétna šarža / EXP výber
+  const [selectedBatchId, setSelectedBatchId] = useState('')
 
   // košík
   const [cart, setCart] = useState([])
@@ -72,6 +86,8 @@ export default function Predaj() {
     setMsg('')
     setStockRows([])
     setOverrideSkladId('')
+    setSelectedBatchId('')
+
     const pid = Number(produktId)
     if (!pid) return
 
@@ -92,6 +108,7 @@ export default function Predaj() {
     loadProdukty()
     loadZakaznici()
   }, [])
+
   useEffect(() => {
     loadStock()
   }, [produktId])
@@ -109,21 +126,51 @@ export default function Predaj() {
     })
   }, [produkty, letter, qProd])
 
+  const batchOptions = useMemo(() => {
+    return [...stockRows].sort((a, b) => {
+      const ax = isExpired(a.expiracia) ? 1 : 0
+      const bx = isExpired(b.expiracia) ? 1 : 0
+      if (ax !== bx) return ax - bx
+
+      const ae = a.expiracia || '9999-12-31'
+      const be = b.expiracia || '9999-12-31'
+      if (ae !== be) return ae < be ? -1 : 1
+
+      return Number(a.id) - Number(b.id)
+    })
+  }, [stockRows])
+
+  const selectedBatch = useMemo(() => {
+    const id = Number(selectedBatchId)
+    if (!id) return null
+    return stockRows.find(r => Number(r.id) === id) ?? null
+  }, [selectedBatchId, stockRows])
+
+  const pickAutoBatch = (qty) => {
+    const good = batchOptions.filter(r => !isExpired(r.expiracia))
+
+    // Preferuj jednu šaržu, ktorá má dosť kusov, aby zákazník nedostal mix EXP.
+    const enoughOneBatch = good.find(r => (Number(r.mnozstvo) || 0) >= qty)
+    if (enoughOneBatch) return enoughOneBatch
+
+    // Ak jedna šarža nestačí, vyber najbližšiu neexpirovanú.
+    return good[0] ?? null
+  }
+
   // zoskup podľa skladu pre vybraný produkt + aj nákupné ceny
   const skladSummary = useMemo(() => {
     const map = new Map()
 
     for (const r of stockRows) {
       const sid = r.sklad_id
+
       if (!map.has(sid)) {
         map.set(sid, {
           sklad_id: sid,
           sklad_nazov: r.sklady?.nazov ?? `Sklad ${sid}`,
           total: 0,
-
-          nearestExp: r.expiracia ?? null,
-          nearestBuy: Number.isFinite(Number(r.nakupna_cena)) ? Number(r.nakupna_cena) : null,
-
+          nearestExp: null,
+          nearestBuy: null,
           minBuy: null,
           maxBuy: null,
           produkt_nazov: r.produkty?.nazov ?? '',
@@ -135,16 +182,18 @@ export default function Predaj() {
       const qty = Number(r.mnozstvo) || 0
       g.total += qty
 
-      // nearest exp + nearest buy (podľa prvej najbližšej šarže)
-      if (!g.nearestExp || (r.expiracia && r.expiracia < g.nearestExp)) {
-        g.nearestExp = r.expiracia
-        g.nearestBuy = Number.isFinite(Number(r.nakupna_cena)) ? Number(r.nakupna_cena) : null
-      }
-
       const buy = Number(r.nakupna_cena)
       if (Number.isFinite(buy)) {
         if (g.minBuy === null || buy < g.minBuy) g.minBuy = buy
         if (g.maxBuy === null || buy > g.maxBuy) g.maxBuy = buy
+      }
+
+      // nearest exp + nearest buy iba z NEEXPIROVANÝCH šarží
+      if (!isExpired(r.expiracia)) {
+        if (!g.nearestExp || (r.expiracia && r.expiracia < g.nearestExp)) {
+          g.nearestExp = r.expiracia
+          g.nearestBuy = Number.isFinite(Number(r.nakupna_cena)) ? Number(r.nakupna_cena) : null
+        }
       }
     }
 
@@ -153,8 +202,12 @@ export default function Predaj() {
 
   const recommended = useMemo(() => {
     if (!skladSummary.length) return null
-    let best = skladSummary[0]
-    for (const g of skladSummary) {
+
+    const valid = skladSummary.filter(g => g.nearestExp)
+    if (valid.length === 0) return null
+
+    let best = valid[0]
+    for (const g of valid) {
       const a = g.nearestExp || '9999-12-31'
       const b = best.nearestExp || '9999-12-31'
       if (a < b) best = g
@@ -175,6 +228,7 @@ export default function Predaj() {
 
   const addToCart = (qty) => {
     setMsg('')
+
     const pid = Number(produktId)
     const q = Number(qty)
     const price = parseEur(cenaKs)
@@ -184,12 +238,32 @@ export default function Predaj() {
     if (!zid) return setMsg('Vyber zákazníka (karta)')
 
     if (!pid) return setMsg('Vyber produkt')
-    if (!chosenSklad?.sklad_id) return setMsg('Nie je dostupný sklad pre tento produkt')
     if (!q || q <= 0) return setMsg('Zadaj množstvo')
     if (!price || price <= 0) return setMsg('Zadaj cenu (€/ks)')
 
-    const available = Number(chosenSklad.total) || 0
-    if (available < q) return setMsg(`Nedostatok na sklade. Dostupné v "${chosenSklad.sklad_nazov}": ${available} ks.`)
+    let batch = selectedBatch ?? pickAutoBatch(q)
+
+    // Ak je ručne vybraný sklad, automatická šarža sa vyberie iba z toho skladu.
+    if (!selectedBatch && overrideSkladId) {
+      const sid = Number(overrideSkladId)
+      const goodInSklad = batchOptions.filter(r => Number(r.sklad_id) === sid && !isExpired(r.expiracia))
+      batch = goodInSklad.find(r => (Number(r.mnozstvo) || 0) >= q) ?? goodInSklad[0] ?? null
+    }
+
+    if (!batch?.id) return setMsg('Nie je dostupná neexpirovaná šarža pre tento produkt.')
+
+    if (isExpired(batch.expiracia)) {
+      return setMsg('Vybraná šarža je expirovaná. Ak ju chceš predať, najprv to prosím potvrďme samostatnou funkciou.')
+    }
+
+    const available = Number(batch.mnozstvo) || 0
+    const batchSkladName = batch.sklady?.nazov ?? `Sklad ${batch.sklad_id}`
+
+    if (available < q) {
+      return setMsg(
+        `V tejto šarži je dostupné iba ${available} ks (${batchSkladName}, EXP ${formatExp(batch.expiracia)}).`
+      )
+    }
 
     const produktNazov = produkty.find(p => Number(p.id) === pid)?.nazov ?? '—'
     const suma = round2(price * q)
@@ -197,12 +271,21 @@ export default function Predaj() {
     setCart(prev => {
       const idx = prev.findIndex(i =>
         i.produkt_id === pid &&
-        i.sklad_id === chosenSklad.sklad_id &&
+        i.zasoba_id === batch.id &&
         Number(i.cena_ks) === Number(price)
       )
+
       if (idx >= 0) {
         const next = [...prev]
         const newQty = Number(next[idx].qty) + q
+
+        if (newQty > available) {
+          setMsg(
+            `V tejto šarži je dostupné iba ${available} ks (${batchSkladName}, EXP ${formatExp(batch.expiracia)}).`
+          )
+          return prev
+        }
+
         next[idx] = {
           ...next[idx],
           qty: newQty,
@@ -210,14 +293,16 @@ export default function Predaj() {
         }
         return next
       }
+
       return [
         ...prev,
         {
           produkt_id: pid,
           produkt_nazov: produktNazov,
-          sklad_id: chosenSklad.sklad_id,
-          sklad_nazov: chosenSklad.sklad_nazov,
-          expiracia: chosenSklad.nearestExp ?? null,
+          zasoba_id: batch.id,
+          sklad_id: batch.sklad_id,
+          sklad_nazov: batchSkladName,
+          expiracia: batch.expiracia ?? null,
           qty: q,
           cena_ks: price,
           suma,
@@ -235,54 +320,88 @@ export default function Predaj() {
 
   // FEFO odpočet zásob pre konkrétny produkt+sklad
   const fefoDeduct = async (pid, sid, qty) => {
-  const { data, error } = await supabase
-    .from('zasoby')
-    .select('id, expiracia, mnozstvo')
-    .eq('produkt_id', pid)
-    .eq('sklad_id', sid)
-    .eq('aktivne', true)
-    .gt('mnozstvo', 0)
-    .order('expiracia', { ascending: true })
-    .order('id', { ascending: true })
+    const { data, error } = await supabase
+      .from('zasoby')
+      .select('id, expiracia, mnozstvo')
+      .eq('produkt_id', pid)
+      .eq('sklad_id', sid)
+      .eq('aktivne', true)
+      .gt('mnozstvo', 0)
+      .order('expiracia', { ascending: true })
+      .order('id', { ascending: true })
 
-  if (error) throw error
+    if (error) throw error
 
-  const list = data ?? []
-  const available = list.reduce((sum, r) => sum + (Number(r.mnozstvo) || 0), 0)
+    const list = (data ?? []).filter(r => !isExpired(r.expiracia))
+    const available = list.reduce((sum, r) => sum + (Number(r.mnozstvo) || 0), 0)
 
-  if (available < qty) {
-    throw new Error(`Nedostatok na sklade (Sklad ${sid}). Dostupné: ${available} ks, chceš: ${qty} ks.`)
+    if (available < qty) {
+      throw new Error(`Nedostatok neexpirovaných zásob (Sklad ${sid}). Dostupné: ${available} ks, chceš: ${qty} ks.`)
+    }
+
+    let remaining = qty
+    const taken = []
+
+    for (const r of list) {
+      if (remaining <= 0) break
+
+      const have = Number(r.mnozstvo) || 0
+      const take = Math.min(have, remaining)
+      const newQty = have - take
+
+      remaining -= take
+
+      const patch = { mnozstvo: newQty, aktivne: newQty > 0 }
+
+      const upd = await supabase
+        .from('zasoby')
+        .update(patch)
+        .eq('id', r.id)
+
+      if (upd.error) throw upd.error
+
+      taken.push({
+        mnozstvo: take,
+        expiracia: r.expiracia ?? null,
+      })
+    }
+
+    return taken
   }
 
-  let remaining = qty
-  const taken = []
+  const deductExactBatch = async (zasobaId, qty) => {
+    const { data, error } = await supabase
+      .from('zasoby')
+      .select('id, expiracia, mnozstvo')
+      .eq('id', zasobaId)
+      .eq('aktivne', true)
+      .single()
 
-  for (const r of list) {
-    if (remaining <= 0) break
+    if (error) throw error
 
-    const have = Number(r.mnozstvo) || 0
-    const take = Math.min(have, remaining)
-    const newQty = have - take
+    if (isExpired(data?.expiracia)) {
+      throw new Error(`Zvolená šarža je expirovaná (EXP ${formatExp(data?.expiracia)}).`)
+    }
 
-    remaining -= take
+    const have = Number(data?.mnozstvo) || 0
+    if (have < qty) {
+      throw new Error(`V zvolenej šarži je už len ${have} ks, chceš ${qty} ks.`)
+    }
 
-    const patch = { mnozstvo: newQty, aktivne: newQty > 0 }
+    const newQty = have - qty
 
     const upd = await supabase
       .from('zasoby')
-      .update(patch)
-      .eq('id', r.id)
+      .update({ mnozstvo: newQty, aktivne: newQty > 0 })
+      .eq('id', zasobaId)
 
     if (upd.error) throw upd.error
 
-    taken.push({
-      mnozstvo: take,
-      expiracia: r.expiracia ?? null,
-    })
+    return [{
+      mnozstvo: qty,
+      expiracia: data.expiracia ?? null,
+    }]
   }
-
-  return taken
-}
 
   const createCustomerQuick = async () => {
     setMsg('')
@@ -352,29 +471,34 @@ export default function Predaj() {
       const predajkaId = insHead.data?.id
       if (!predajkaId) throw new Error('Nepodarilo sa vytvoriť predajku')
 
-      // 2) položky: FEFO odpočet + insert
-
+      // 2) položky: presný odpočet šarže + insert
       for (const item of cart) {
-        const taken = await fefoDeduct(item.produkt_id, item.sklad_id, item.qty)
-      for (const t of taken) {
-    const partSum = round2(Number(item.cena_ks) * Number(t.mnozstvo))
-    const insItem = await supabase.from('predajky_polozky').insert({
-      predajka_id: predajkaId,
-      produkt_id: item.produkt_id,
-      sklad_id: item.sklad_id,
-      mnozstvo: t.mnozstvo,
-      cena_ks: item.cena_ks,
-      suma: partSum,
-      expiracia: t.expiracia,
-    })
-    if (insItem.error) throw insItem.error
-  }
-}
+        const taken = item.zasoba_id
+          ? await deductExactBatch(item.zasoba_id, item.qty)
+          : await fefoDeduct(item.produkt_id, item.sklad_id, item.qty)
+
+        for (const t of taken) {
+          const partSum = round2(Number(item.cena_ks) * Number(t.mnozstvo))
+
+          const insItem = await supabase.from('predajky_polozky').insert({
+            predajka_id: predajkaId,
+            produkt_id: item.produkt_id,
+            sklad_id: item.sklad_id,
+            mnozstvo: t.mnozstvo,
+            cena_ks: item.cena_ks,
+            suma: partSum,
+            expiracia: t.expiracia,
+          })
+
+          if (insItem.error) throw insItem.error
+        }
+      }
 
       // reset košíka a výberov
       setCart([])
       setProduktId('')
       setOverrideSkladId('')
+      setSelectedBatchId('')
       setQtyInput('')
       setCenaKs('')
       // zákazníka necháme vybraného (príjemné pri viacerých predajoch)
@@ -462,6 +586,7 @@ export default function Predaj() {
                   setLetter(l)
                   setProduktId('')
                   setOverrideSkladId('')
+                  setSelectedBatchId('')
                 }}
               >
                 {l}
@@ -473,6 +598,7 @@ export default function Predaj() {
                 setLetter('')
                 setProduktId('')
                 setOverrideSkladId('')
+                setSelectedBatchId('')
               }}
               title="Zrušiť písmeno"
             >
@@ -493,7 +619,11 @@ export default function Predaj() {
           <select
             className="w-full border rounded-xl px-3 py-3 text-lg"
             value={produktId}
-            onChange={(e) => setProduktId(e.target.value)}
+            onChange={(e) => {
+              setProduktId(e.target.value)
+              setOverrideSkladId('')
+              setSelectedBatchId('')
+            }}
           >
             <option value="">Vyber…</option>
             {filteredProdukty.map(p => <option key={p.id} value={p.id}>{p.nazov}</option>)}
@@ -501,55 +631,95 @@ export default function Predaj() {
         </div>
 
         {/* ✅ SKLAD INFO PRVÝ */}
-        {produktId && skladSummary.length > 0 && (
+        {produktId && stockRows.length > 0 && (
           <div className="border rounded-xl p-3">
             <div className="text-sm opacity-70">Sklad pre tento produkt</div>
 
             <div className="mt-2">
               <div className="text-sm font-semibold mb-1">
-                Sklad vyberá systém automaticky podľa najbližšej EXP
+                Sklad vyberá systém automaticky podľa najbližšej neexpirovanej EXP
               </div>
               <div className="text-xs opacity-60 mb-1">
-                Ručne zmeň iba vtedy, ak chceš predať z iného skladu.
+                Ručne zmeň iba vtedy, ak chceš predávať iba z konkrétneho skladu.
               </div>
               <select
                 className="w-full border rounded-xl px-3 py-2"
                 value={overrideSkladId}
-                onChange={(e) => setOverrideSkladId(e.target.value)}
+                onChange={(e) => {
+                  setOverrideSkladId(e.target.value)
+                  setSelectedBatchId('')
+                }}
               >
-                <option value="">Automaticky: najbližší EXP</option>
+                <option value="">Automaticky: najbližší neexpirovaný EXP</option>
                 {skladSummary.map(s => (
                   <option key={s.sklad_id} value={s.sklad_id}>
-                    {s.sklad_nazov} — {s.total} ks — EXP {s.nearestExp ? formatExp(s.nearestExp) : '—'}
+                    {s.sklad_nazov} — {s.total} ks — najbližší EXP {s.nearestExp ? formatExp(s.nearestExp) : '—'}
                   </option>
                 ))}
               </select>
             </div>
 
-            {chosenSklad && (
+            <div className="mt-3">
+              <div className="text-sm font-semibold mb-1">Vybrať šaržu / EXP</div>
+              <select
+                className="w-full border rounded-xl px-3 py-2"
+                value={selectedBatchId}
+                onChange={(e) => setSelectedBatchId(e.target.value)}
+              >
+                <option value="">Automaticky: najbližšia neexpirovaná šarža</option>
+                {batchOptions
+                  .filter(r => !overrideSkladId || Number(r.sklad_id) === Number(overrideSkladId))
+                  .map(r => (
+                    <option key={r.id} value={r.id}>
+                      {isExpired(r.expiracia) ? 'EXPIROVANÉ – ' : ''}
+                      {r.sklady?.nazov ?? `Sklad ${r.sklad_id}`} · EXP {r.expiracia ? formatExp(r.expiracia) : '—'} · {Number(r.mnozstvo) || 0} ks
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            {(selectedBatch || chosenSklad) && (
               <div className="mt-3">
-                <div className="text-base font-semibold">{chosenSklad.sklad_nazov}</div>
+                {selectedBatch ? (
+                  <>
+                    <div className="text-base font-semibold">
+                      {selectedBatch.sklady?.nazov ?? `Sklad ${selectedBatch.sklad_id}`} · EXP {formatExp(selectedBatch.expiracia)}
+                    </div>
 
-                <div className="text-sm opacity-80 mt-1">
-                  Dostupné: <span className="font-semibold">{chosenSklad.total}</span> ks · Najbližší EXP:{' '}
-                  <span className="font-semibold">{chosenSklad.nearestExp ? formatExp(chosenSklad.nearestExp) : '—'}</span>
-                </div>
+                    <div className="text-sm opacity-80 mt-1">
+                      Dostupné v šarži: <span className="font-semibold">{Number(selectedBatch.mnozstvo) || 0}</span> ks
+                    </div>
 
-                <div className="text-sm opacity-80 mt-1">
-                  Nákupná cena (info):{' '}
-                  <span className="font-semibold">
-                    {chosenSklad.minBuy === null
-                      ? '—'
-                      : chosenSklad.minBuy === chosenSklad.maxBuy
-                        ? fmtEur(chosenSklad.minBuy)
-                        : `${fmtEur(chosenSklad.minBuy)} – ${fmtEur(chosenSklad.maxBuy)}`}
-                  </span>
-                  {chosenSklad.nearestBuy !== null && (
-                    <>
-                      {' '}· Najbližšia šarža: <span className="font-semibold">{fmtEur(chosenSklad.nearestBuy)}</span> / ks
-                    </>
-                  )}
-                </div>
+                    <div className="text-sm opacity-80 mt-1">
+                      Nákupná cena (info): <span className="font-semibold">{fmtEur(selectedBatch.nakupna_cena)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-base font-semibold">{chosenSklad?.sklad_nazov ?? '—'}</div>
+
+                    <div className="text-sm opacity-80 mt-1">
+                      Dostupné: <span className="font-semibold">{chosenSklad?.total ?? 0}</span> ks · Najbližší použiteľný EXP:{' '}
+                      <span className="font-semibold">{chosenSklad?.nearestExp ? formatExp(chosenSklad.nearestExp) : '—'}</span>
+                    </div>
+
+                    <div className="text-sm opacity-80 mt-1">
+                      Nákupná cena (info):{' '}
+                      <span className="font-semibold">
+                        {chosenSklad?.minBuy === null || chosenSklad?.minBuy === undefined
+                          ? '—'
+                          : chosenSklad.minBuy === chosenSklad.maxBuy
+                            ? fmtEur(chosenSklad.minBuy)
+                            : `${fmtEur(chosenSklad.minBuy)} – ${fmtEur(chosenSklad.maxBuy)}`}
+                      </span>
+                      {chosenSklad?.nearestBuy !== null && chosenSklad?.nearestBuy !== undefined && (
+                        <>
+                          {' '}· Najbližšia šarža: <span className="font-semibold">{fmtEur(chosenSklad.nearestBuy)}</span> / ks
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -590,7 +760,7 @@ export default function Predaj() {
           </div>
 
           <div className="text-xs opacity-60 mt-2">
-            Tip: Predajka = košík. Pridaj viac produktov a potom klikni „Dokončiť predaj“.
+            Tip: Predajka = košík. Pridaj viac produktov a potom klikni „Dokončiť predaj".
           </div>
         </div>
 
