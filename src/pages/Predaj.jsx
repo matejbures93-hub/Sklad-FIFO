@@ -252,8 +252,12 @@ export default function Predaj() {
 
     if (!batch?.id) return setMsg('Nie je dostupná neexpirovaná šarža pre tento produkt.')
 
-    if (isExpired(batch.expiracia)) {
-      return setMsg('Vybraná šarža je expirovaná. Ak ju chceš predať, najprv to prosím potvrďme samostatnou funkciou.')
+    const manuallySelectedExpired =
+    selectedBatch && isExpired(selectedBatch.expiracia)
+
+    // automatika nesmie brať expirované
+    if (!manuallySelectedExpired && isExpired(batch.expiracia)) {
+      return setMsg('Automatický predaj nepovoľuje expirované šarže')
     }
 
     const available = Number(batch.mnozstvo) || 0
