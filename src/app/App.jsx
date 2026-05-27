@@ -2,7 +2,6 @@ import { Routes, Route, Outlet } from 'react-router-dom'
 import RequireAuth from '../components/RequireAuth'
 import TopMenu from '../components/TopMenu'
 import Login from '../pages/Login'
-
 import Predaj from '../pages/Predaj.jsx'
 import Zakaznici from '../pages/Zakaznici.jsx'
 import Produkty from '../pages/Produkty.jsx'
@@ -10,12 +9,13 @@ import Naskladnit from '../pages/Naskladnit.jsx'
 import Historia from '../pages/Historia.jsx'
 import Sklad from '../pages/Sklad.jsx'
 import Dashboard from '../pages/Dashboard.jsx'
+import UpdatePrompt from '../components/UpdatePrompt'
 
 function AuthedLayout() {
   return (
     <div>
       <TopMenu />
-
+      <UpdatePrompt />
       {/* obsah: na mobile odsadenie zhora kvôli hamburgeru,
          na desktope odsadenie zľava kvôli ľavému menu */}
       <div className="pt-16 lg:pt-0 lg:ml-64">
