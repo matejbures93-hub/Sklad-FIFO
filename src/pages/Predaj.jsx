@@ -4,6 +4,11 @@ import { formatExp, parseEur, round2, isExpired } from '../utils/predajUtils'
 import CustomerSection from '../components/predaj/CustomerSection'
 import ProductSection from '../components/predaj/ProductSection'
 import CartSection from '../components/predaj/CartSection'
+import {
+  getReservations,
+  getReservationSummaryByDraftIds,
+  replaceReservationsForDraft,
+} from '../services/reservations.service'
 
 export default function Predaj() {
   const [produkty, setProdukty] = useState([])
@@ -83,19 +88,11 @@ export default function Predaj() {
       .select('draft_id')
       .in('draft_id', ids)
 
-    const rez = await supabase
-      .from('rezervacie_zasob')
-      .select('draft_id, mnozstvo')
-      .in('draft_id', ids)
+    const reservedQty = await getReservationSummaryByDraftIds(ids)
 
     const counts = new Map()
     for (const it of items.data ?? []) {
       counts.set(it.draft_id, (counts.get(it.draft_id) ?? 0) + 1)
-    }
-
-    const reservedQty = new Map()
-    for (const r of rez.data ?? []) {
-      reservedQty.set(r.draft_id, (reservedQty.get(r.draft_id) ?? 0) + (Number(r.mnozstvo) || 0))
     }
 
     setDrafts(list.map(x => ({
@@ -106,12 +103,11 @@ export default function Predaj() {
   }
 
   const loadReservations = async () => {
-    const r = await supabase
-      .from('rezervacie_zasob')
-      .select('id, draft_id, zasoba_id, mnozstvo')
-
-    if (r.error) return setMsg(r.error.message)
-    setReservations(r.data ?? [])
+    try {
+      setReservations(await getReservations())
+    } catch (e) {
+      setMsg(e?.message ?? 'Chyba pri načítaní rezervácií')
+    }
   }
 
   const loadStock = async () => {
@@ -345,12 +341,6 @@ export default function Predaj() {
 
         if (del.error) throw del.error
 
-        const delRez = await supabase
-          .from('rezervacie_zasob')
-          .delete()
-          .eq('draft_id', draftId)
-
-        if (delRez.error) throw delRez.error
       } else {
         const ins = await supabase
           .from('predajky_drafty')
@@ -388,25 +378,11 @@ export default function Predaj() {
 
       if (insItems.error) throw insItems.error
 
-      const reservationRows = cart
-        .filter(item => item.zasoba_id)
-        .map(item => ({
-          draft_id: draftId,
-          zasoba_id: item.zasoba_id,
-          produkt_id: item.produkt_id,
-          sklad_id: item.sklad_id,
-          mnozstvo: item.qty,
-          user_id: user?.id ?? null,
-          user_email: user?.email ?? null,
-        }))
-
-      if (reservationRows.length > 0) {
-        const insRez = await supabase
-          .from('rezervacie_zasob')
-          .insert(reservationRows)
-
-        if (insRez.error) throw insRez.error
-      }
+      await replaceReservationsForDraft({
+        draftId,
+        cart,
+        user,
+      })
 
       setDraftName(name)
       await loadDrafts()
