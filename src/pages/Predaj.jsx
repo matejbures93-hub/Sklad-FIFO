@@ -23,6 +23,13 @@ function fmtEur(v) {
   return `${n.toFixed(2)} €`
 }
 
+function fmtShort(dt) {
+  if (!dt) return ''
+  const d = new Date(dt)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}. ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 function todayYmd() {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
@@ -55,6 +62,13 @@ export default function Predaj() {
   // košík
   const [cart, setCart] = useState([])
 
+  // rozpracované predajky
+  const [drafts, setDrafts] = useState([])
+  const [draftOpen, setDraftOpen] = useState(false)
+  const [draftLoading, setDraftLoading] = useState(false)
+  const [draftName, setDraftName] = useState('')
+  const [currentDraftId, setCurrentDraftId] = useState(null)
+
   // ZÁKAZNÍCI
   const [zakaznici, setZakaznici] = useState([])
   const [zakaznikId, setZakaznikId] = useState('') // povinný
@@ -82,6 +96,39 @@ export default function Predaj() {
     if (!z.error) setZakaznici(z.data ?? [])
   }
 
+  const loadDrafts = async () => {
+    const d = await supabase
+      .from('predajky_drafty')
+      .select('id, created_at, updated_at, nazov, zakaznik_id, user_email')
+      .order('updated_at', { ascending: false })
+      .limit(30)
+
+    if (d.error) return setMsg(d.error.message)
+
+    const list = d.data ?? []
+    const ids = list.map(x => x.id)
+
+    if (ids.length === 0) {
+      setDrafts([])
+      return
+    }
+
+    const items = await supabase
+      .from('predajky_draft_polozky')
+      .select('draft_id')
+      .in('draft_id', ids)
+
+    const counts = new Map()
+    for (const it of items.data ?? []) {
+      counts.set(it.draft_id, (counts.get(it.draft_id) ?? 0) + 1)
+    }
+
+    setDrafts(list.map(x => ({
+      ...x,
+      itemsCount: counts.get(x.id) ?? 0,
+    })))
+  }
+
   const loadStock = async () => {
     setMsg('')
     setStockRows([])
@@ -107,6 +154,7 @@ export default function Predaj() {
   useEffect(() => {
     loadProdukty()
     loadZakaznici()
+    loadDrafts()
   }, [])
 
   useEffect(() => {
@@ -233,6 +281,180 @@ export default function Predaj() {
   }, [zakaznikId, zakaznici])
 
   const canBuyExpired = !!selectedCustomer?.moze_kupit_expir
+
+  const defaultDraftName = () => {
+    const name = selectedCustomer?.nazov || 'Rozpracovaná predajka'
+    const d = new Date()
+    const pad = (n) => String(n).padStart(2, '0')
+    return `${name} ${pad(d.getDate())}.${pad(d.getMonth() + 1)}. ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  const saveDraft = async () => {
+    setMsg('')
+
+    const zid = Number(zakaznikId)
+    if (!zid) return setMsg('Vyber zákazníka pred uložením rozpracovanej predajky.')
+    if (cart.length === 0) return setMsg('Košík je prázdny – nie je čo uložiť.')
+
+    setDraftLoading(true)
+    try {
+      const { data: sess, error: sessErr } = await supabase.auth.getSession()
+      if (sessErr) throw sessErr
+      const user = sess?.session?.user
+
+      const name = draftName.trim() || defaultDraftName()
+      let draftId = currentDraftId
+
+      if (draftId) {
+        const upd = await supabase
+          .from('predajky_drafty')
+          .update({
+            nazov: name,
+            zakaznik_id: zid,
+            user_id: user?.id ?? null,
+            user_email: user?.email ?? null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', draftId)
+
+        if (upd.error) throw upd.error
+
+        const del = await supabase
+          .from('predajky_draft_polozky')
+          .delete()
+          .eq('draft_id', draftId)
+
+        if (del.error) throw del.error
+      } else {
+        const ins = await supabase
+          .from('predajky_drafty')
+          .insert({
+            nazov: name,
+            zakaznik_id: zid,
+            user_id: user?.id ?? null,
+            user_email: user?.email ?? null,
+          })
+          .select('id')
+          .single()
+
+        if (ins.error) throw ins.error
+        draftId = ins.data?.id
+        if (!draftId) throw new Error('Nepodarilo sa vytvoriť rozpracovanú predajku.')
+        setCurrentDraftId(draftId)
+      }
+
+      const rows = cart.map(item => ({
+        draft_id: draftId,
+        produkt_id: item.produkt_id,
+        produkt_nazov: item.produkt_nazov,
+        zasoba_id: item.zasoba_id ?? null,
+        sklad_id: item.sklad_id,
+        sklad_nazov: item.sklad_nazov,
+        mnozstvo: item.qty,
+        cena_ks: item.cena_ks,
+        suma: item.suma,
+        expiracia: item.expiracia ?? null,
+      }))
+
+      const insItems = await supabase
+        .from('predajky_draft_polozky')
+        .insert(rows)
+
+      if (insItems.error) throw insItems.error
+
+      setDraftName(name)
+      await loadDrafts()
+      setDraftOpen(true)
+      setMsg('Rozpracovaná predajka uložená ✅')
+    } catch (e) {
+      setMsg(e?.message ?? 'Chyba pri ukladaní rozpracovanej predajky')
+    } finally {
+      setDraftLoading(false)
+    }
+  }
+
+  const loadDraft = async (draft) => {
+    setMsg('')
+    setDraftLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('predajky_draft_polozky')
+        .select('*')
+        .eq('draft_id', draft.id)
+        .order('id', { ascending: true })
+
+      if (error) throw error
+
+      setZakaznikId(draft.zakaznik_id ? String(draft.zakaznik_id) : '')
+      setCart((data ?? []).map(it => ({
+        produkt_id: it.produkt_id,
+        produkt_nazov: it.produkt_nazov ?? '—',
+        zasoba_id: it.zasoba_id,
+        sklad_id: it.sklad_id,
+        sklad_nazov: it.sklad_nazov ?? '—',
+        expiracia: it.expiracia ?? null,
+        qty: Number(it.mnozstvo) || 0,
+        cena_ks: Number(it.cena_ks) || 0,
+        suma: Number(it.suma) || 0,
+      })))
+      setProduktId('')
+      setOverrideSkladId('')
+      setSelectedBatchId('')
+      setQtyInput('')
+      setCenaKs('')
+      setCurrentDraftId(draft.id)
+      setDraftName(draft.nazov ?? '')
+      setDraftOpen(false)
+      setMsg('Rozpracovaná predajka načítaná ✅')
+    } catch (e) {
+      setMsg(e?.message ?? 'Chyba pri načítaní rozpracovanej predajky')
+    } finally {
+      setDraftLoading(false)
+    }
+  }
+
+  const deleteDraft = async (draftId) => {
+    const ok = window.confirm('Naozaj vymazať túto rozpracovanú predajku?')
+    if (!ok) return
+
+    setMsg('')
+    setDraftLoading(true)
+    try {
+      const { error } = await supabase
+        .from('predajky_drafty')
+        .delete()
+        .eq('id', draftId)
+
+      if (error) throw error
+
+      if (Number(currentDraftId) === Number(draftId)) {
+        setCurrentDraftId(null)
+        setDraftName('')
+      }
+
+      await loadDrafts()
+      setMsg('Rozpracovaná predajka vymazaná ✅')
+    } catch (e) {
+      setMsg(e?.message ?? 'Chyba pri mazaní rozpracovanej predajky')
+    } finally {
+      setDraftLoading(false)
+    }
+  }
+
+  const clearCurrentCart = () => {
+    const ok = window.confirm('Vymazať aktuálny košík?')
+    if (!ok) return
+
+    setCart([])
+    setProduktId('')
+    setOverrideSkladId('')
+    setSelectedBatchId('')
+    setQtyInput('')
+    setCenaKs('')
+    setCurrentDraftId(null)
+    setDraftName('')
+    setMsg('Košík vymazaný ✅')
+  }
 
   const addToCart = (qty) => {
     setMsg('')
@@ -508,6 +730,18 @@ export default function Predaj() {
 
           if (insItem.error) throw insItem.error
         }
+      }
+
+      if (currentDraftId) {
+        const delDraft = await supabase
+          .from('predajky_drafty')
+          .delete()
+          .eq('id', currentDraftId)
+
+        if (delDraft.error) throw delDraft.error
+        setCurrentDraftId(null)
+        setDraftName('')
+        await loadDrafts()
       }
 
       // reset košíka a výberov
@@ -793,6 +1027,12 @@ export default function Predaj() {
             <div className="text-base font-semibold">Spolu: {cartTotal.toFixed(2)} €</div>
           </div>
 
+          {currentDraftId && (
+            <div className="text-xs border rounded-xl p-2 mt-2 bg-white">
+              💾 Načítaná rozpracovaná predajka: <b>{draftName || `#${currentDraftId}`}</b>
+            </div>
+          )}
+
           {cart.length === 0 ? (
             <div className="text-sm opacity-70 mt-2">Zatiaľ prázdne.</div>
           ) : (
@@ -811,6 +1051,67 @@ export default function Predaj() {
               ))}
             </div>
           )}
+
+          <div className="border rounded-xl p-3 mt-3 bg-white">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold">Rozpracované predajky</div>
+              <button className="text-sm underline" onClick={() => { setDraftOpen(v => !v); loadDrafts() }}>
+                {draftOpen ? 'Skryť' : `Zobraziť (${drafts.length})`}
+              </button>
+            </div>
+
+            <input
+              className="w-full border rounded-xl px-3 py-2 mt-2"
+              placeholder="Názov draftu (voliteľné)"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+            />
+
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <button
+                className="border rounded-xl py-2 font-semibold"
+                onClick={saveDraft}
+                disabled={draftLoading || cart.length === 0}
+              >
+                {draftLoading ? 'Ukladám…' : '💾 Uložiť'}
+              </button>
+              <button
+                className="border rounded-xl py-2 font-semibold"
+                onClick={clearCurrentCart}
+                disabled={draftLoading || cart.length === 0}
+              >
+                🗑️ Vymazať košík
+              </button>
+            </div>
+
+            {draftOpen && (
+              <div className="mt-3 space-y-2">
+                {drafts.length === 0 ? (
+                  <div className="text-sm opacity-70">Žiadne rozpracované predajky.</div>
+                ) : (
+                  drafts.map(d => {
+                    const customer = zakaznici.find(z => Number(z.id) === Number(d.zakaznik_id))
+                    return (
+                      <div key={d.id} className="border rounded-xl p-3">
+                        <div className="font-semibold">{d.nazov || 'Bez názvu'}</div>
+                        <div className="text-sm opacity-70 mt-1">
+                          {customer?.nazov ?? '—'} · {d.itemsCount ?? 0} položiek · {fmtShort(d.updated_at || d.created_at)}
+                        </div>
+                        <div className="flex gap-3 mt-2">
+                          <button className="text-sm underline" onClick={() => loadDraft(d)} disabled={draftLoading}>
+                            Načítať
+                          </button>
+                          <button className="text-sm underline" onClick={() => deleteDraft(d.id)} disabled={draftLoading}>
+                            Vymazať
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            )}
+          </div>
 
           <button
             className="w-full border rounded-xl py-3 text-lg font-semibold mt-3"
