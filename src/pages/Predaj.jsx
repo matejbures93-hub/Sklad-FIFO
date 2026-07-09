@@ -1,45 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../services/supabase'
-
-function formatExp(exp) {
-  if (!exp) return ''
-  const [y, m] = exp.split('-')
-  return `${m}/${y}`
-}
-
-function parseEur(s) {
-  const n = Number(String(s ?? '').trim().replace(',', '.'))
-  return Number.isFinite(n) ? n : NaN
-}
-
-function round2(n) {
-  return Math.round(n * 100) / 100
-}
-
-function fmtEur(v) {
-  if (v === null || v === undefined || v === '') return '—'
-  const n = Number(v)
-  if (!Number.isFinite(n)) return '—'
-  return `${n.toFixed(2)} €`
-}
-
-function fmtShort(dt) {
-  if (!dt) return ''
-  const d = new Date(dt)
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}. ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function todayYmd() {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  return d.toISOString().slice(0, 10)
-}
-
-function isExpired(exp) {
-  if (!exp) return false
-  return exp < todayYmd()
-}
+import { formatExp, parseEur, round2, fmtEur, fmtShort, isExpired } from '../utils/predajUtils'
 
 export default function Predaj() {
   const [produkty, setProdukty] = useState([])
