@@ -32,6 +32,7 @@ export default function Predaj() {
   const [draftLoading, setDraftLoading] = useState(false)
   const [draftName, setDraftName] = useState('')
   const [currentDraftId, setCurrentDraftId] = useState(null)
+  const [reservations, setReservations] = useState([])
 
   // ZÁKAZNÍCI
   const [zakaznici, setZakaznici] = useState([])
@@ -82,15 +83,35 @@ export default function Predaj() {
       .select('draft_id')
       .in('draft_id', ids)
 
+    const rez = await supabase
+      .from('rezervacie_zasob')
+      .select('draft_id, mnozstvo')
+      .in('draft_id', ids)
+
     const counts = new Map()
     for (const it of items.data ?? []) {
       counts.set(it.draft_id, (counts.get(it.draft_id) ?? 0) + 1)
     }
 
+    const reservedQty = new Map()
+    for (const r of rez.data ?? []) {
+      reservedQty.set(r.draft_id, (reservedQty.get(r.draft_id) ?? 0) + (Number(r.mnozstvo) || 0))
+    }
+
     setDrafts(list.map(x => ({
       ...x,
       itemsCount: counts.get(x.id) ?? 0,
+      reservedQty: reservedQty.get(x.id) ?? 0,
     })))
+  }
+
+  const loadReservations = async () => {
+    const r = await supabase
+      .from('rezervacie_zasob')
+      .select('id, draft_id, zasoba_id, mnozstvo')
+
+    if (r.error) return setMsg(r.error.message)
+    setReservations(r.data ?? [])
   }
 
   const loadStock = async () => {
@@ -119,11 +140,45 @@ export default function Predaj() {
     loadProdukty()
     loadZakaznici()
     loadDrafts()
+    loadReservations()
   }, [])
 
   useEffect(() => {
     loadStock()
   }, [produktId])
+
+  const reservedByZasoba = useMemo(() => {
+    const map = new Map()
+    const activeDraftId = currentDraftId ? Number(currentDraftId) : null
+
+    for (const r of reservations) {
+      // Vlastná načítaná rozpracovaná predajka si svoje rezervácie necháva dostupné.
+      if (activeDraftId && Number(r.draft_id) === activeDraftId) continue
+
+      const key = Number(r.zasoba_id)
+      if (!key) continue
+      map.set(key, (map.get(key) ?? 0) + (Number(r.mnozstvo) || 0))
+    }
+
+    return map
+  }, [reservations, currentDraftId])
+
+  const availableStockRows = useMemo(() => {
+    return (stockRows ?? [])
+      .map(r => {
+        const reserved = reservedByZasoba.get(Number(r.id)) ?? 0
+        const originalQty = Number(r.mnozstvo) || 0
+        const freeQty = Math.max(0, originalQty - reserved)
+
+        return {
+          ...r,
+          povodne_mnozstvo: originalQty,
+          rezervovane_mnozstvo: reserved,
+          mnozstvo: freeQty,
+        }
+      })
+      .filter(r => (Number(r.mnozstvo) || 0) > 0)
+  }, [stockRows, reservedByZasoba])
 
   // produkty podľa písmena + hľadania
   const filteredProdukty = useMemo(() => {
@@ -139,7 +194,7 @@ export default function Predaj() {
   }, [produkty, letter, qProd])
 
   const batchOptions = useMemo(() => {
-    return [...stockRows].sort((a, b) => {
+    return [...availableStockRows].sort((a, b) => {
       const ax = isExpired(a.expiracia) ? 1 : 0
       const bx = isExpired(b.expiracia) ? 1 : 0
       if (ax !== bx) return ax - bx
@@ -150,13 +205,13 @@ export default function Predaj() {
 
       return Number(a.id) - Number(b.id)
     })
-  }, [stockRows])
+  }, [availableStockRows])
 
   const selectedBatch = useMemo(() => {
     const id = Number(selectedBatchId)
     if (!id) return null
-    return stockRows.find(r => Number(r.id) === id) ?? null
-  }, [selectedBatchId, stockRows])
+    return availableStockRows.find(r => Number(r.id) === id) ?? null
+  }, [selectedBatchId, availableStockRows])
 
   const pickAutoBatch = (qty) => {
     const good = batchOptions.filter(r => !isExpired(r.expiracia))
@@ -173,7 +228,7 @@ export default function Predaj() {
   const skladSummary = useMemo(() => {
     const map = new Map()
 
-    for (const r of stockRows) {
+    for (const r of availableStockRows) {
       const sid = r.sklad_id
 
       if (!map.has(sid)) {
@@ -210,7 +265,7 @@ export default function Predaj() {
     }
 
     return Array.from(map.values()).sort((a, b) => a.sklad_id - b.sklad_id)
-  }, [stockRows])
+  }, [availableStockRows])
 
   const recommended = useMemo(() => {
     if (!skladSummary.length) return null
@@ -289,6 +344,13 @@ export default function Predaj() {
           .eq('draft_id', draftId)
 
         if (del.error) throw del.error
+
+        const delRez = await supabase
+          .from('rezervacie_zasob')
+          .delete()
+          .eq('draft_id', draftId)
+
+        if (delRez.error) throw delRez.error
       } else {
         const ins = await supabase
           .from('predajky_drafty')
@@ -326,10 +388,31 @@ export default function Predaj() {
 
       if (insItems.error) throw insItems.error
 
+      const reservationRows = cart
+        .filter(item => item.zasoba_id)
+        .map(item => ({
+          draft_id: draftId,
+          zasoba_id: item.zasoba_id,
+          produkt_id: item.produkt_id,
+          sklad_id: item.sklad_id,
+          mnozstvo: item.qty,
+          user_id: user?.id ?? null,
+          user_email: user?.email ?? null,
+        }))
+
+      if (reservationRows.length > 0) {
+        const insRez = await supabase
+          .from('rezervacie_zasob')
+          .insert(reservationRows)
+
+        if (insRez.error) throw insRez.error
+      }
+
       setDraftName(name)
       await loadDrafts()
+      await loadReservations()
       setDraftOpen(true)
-      setMsg('Rozpracovaná predajka uložená ✅')
+      setMsg('Rozpracovaná predajka uložená a zásoby rezervované ✅')
     } catch (e) {
       setMsg(e?.message ?? 'Chyba pri ukladaní rozpracovanej predajky')
     } finally {
@@ -368,6 +451,7 @@ export default function Predaj() {
       setCenaKs('')
       setCurrentDraftId(draft.id)
       setDraftName(draft.nazov ?? '')
+      await loadReservations()
       setDraftOpen(false)
       setMsg('Rozpracovaná predajka načítaná ✅')
     } catch (e) {
@@ -397,7 +481,8 @@ export default function Predaj() {
       }
 
       await loadDrafts()
-      setMsg('Rozpracovaná predajka vymazaná ✅')
+      await loadReservations()
+      setMsg('Rozpracovaná predajka vymazaná a rezervácie uvoľnené ✅')
     } catch (e) {
       setMsg(e?.message ?? 'Chyba pri mazaní rozpracovanej predajky')
     } finally {
@@ -706,6 +791,7 @@ export default function Predaj() {
         setCurrentDraftId(null)
         setDraftName('')
         await loadDrafts()
+        await loadReservations()
       }
 
       // reset košíka a výberov
@@ -728,7 +814,7 @@ export default function Predaj() {
     <div className="max-w-md mx-auto p-4 pb-24">
       <div className="flex items-center justify-between mb-3">
         <h1 className="text-2xl font-bold">Predaj (Predajka)</h1>
-        <button className="text-sm underline" onClick={loadStock}>Obnoviť</button>
+        <button className="text-sm underline" onClick={() => { loadStock(); loadReservations() }}>Obnoviť</button>
       </div>
 
       {msg && <div className="text-base border rounded-xl p-3 mb-3">{msg}</div>}
@@ -760,7 +846,7 @@ export default function Predaj() {
           produktId={produktId}
           setProduktId={setProduktId}
           filteredProdukty={filteredProdukty}
-          stockRows={stockRows}
+          stockRows={availableStockRows}
           overrideSkladId={overrideSkladId}
           setOverrideSkladId={setOverrideSkladId}
           selectedBatchId={selectedBatchId}

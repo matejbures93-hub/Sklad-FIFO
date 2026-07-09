@@ -59,7 +59,7 @@ export default function DraftSection({
                 <div key={d.id} className="border rounded-xl p-3">
                   <div className="font-semibold">{d.nazov || 'Bez názvu'}</div>
                   <div className="text-sm opacity-70 mt-1">
-                    {customer?.nazov ?? '—'} · {d.itemsCount ?? 0} položiek · {fmtShort(d.updated_at || d.created_at)}
+                    {customer?.nazov ?? '—'} · {d.itemsCount ?? 0} položiek · 📌 {Number(d.reservedQty) || 0} ks rezervované · {fmtShort(d.updated_at || d.created_at)}
                   </div>
                   <div className="flex gap-3 mt-2">
                     <button className="text-sm underline" onClick={() => loadDraft(d)} disabled={draftLoading}>
