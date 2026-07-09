@@ -8,17 +8,21 @@ export default function UpdatePrompt() {
   useEffect(() => {
     const update = registerSW({
       immediate: true,
+
       onNeedRefresh() {
         setNeedRefresh(true)
       },
+
+      onOfflineReady() {
+        console.log('Aplikácia je pripravená offline')
+      },
+
       onRegisteredSW(_swUrl, registration) {
         if (!registration) return
 
-        const interval = setInterval(() => {
+        setInterval(() => {
           registration.update()
-        }, 60 * 60 * 1000)
-
-        return () => clearInterval(interval)
+        }, 5 * 60 * 1000)
       },
     })
 
@@ -30,16 +34,16 @@ export default function UpdatePrompt() {
   return (
     <div className="fixed bottom-20 left-3 right-3 z-[9999] max-w-md mx-auto">
       <div className="border rounded-2xl bg-white shadow-2xl p-4">
-        <div className="font-bold">🔄 Dostupná nová verzia</div>
+        <div className="text-base font-bold">🆕 Dostupná nová verzia</div>
         <div className="text-sm opacity-70 mt-1">
-          Klikni na aktualizovať a appka načíta najnovšie zmeny.
+          Aplikácia má novú aktualizáciu. Klikni na aktualizovať, keď chceš načítať najnovšie zmeny.
         </div>
 
         <button
           className="w-full border rounded-xl py-3 font-semibold mt-3"
           onClick={() => updateSW?.(true)}
         >
-          Aktualizovať appku
+          Aktualizovať aplikáciu
         </button>
 
         <button
