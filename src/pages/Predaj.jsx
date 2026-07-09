@@ -13,8 +13,6 @@ import {
   saveDraftData,
 } from '../services/draftService'
 import {
-  deductExactBatch,
-  fefoDeduct,
   getAvailableStockRows,
   getBatchOptions,
   getChosenSklad,
@@ -25,6 +23,7 @@ import {
   getStockForProduct,
   pickAutoBatch,
 } from '../services/stockService'
+import { finishSale } from '../services/salesService'
 
 export default function Predaj() {
   const [produkty, setProdukty] = useState([])
@@ -432,74 +431,30 @@ export default function Predaj() {
 
     setLoading(true)
     try {
-      const { data: sess, error: sessErr } = await supabase.auth.getSession()
-      if (sessErr) throw sessErr
-      const user = sess?.session?.user
-
       const custName = (zakaznici.find(z => Number(z.id) === zid)?.nazov ?? '').trim() || null
 
-      // 1) hlavička predajky
-      const insHead = await supabase
-        .from('predajky')
-        .insert({
-          // nech sa ti nič nerozbije v histórii – uložíme názov zákazníka aj do "komu"
-          komu: custName,
-          suma: cartTotal,
-          zakaznik_id: zid,
-          user_id: user?.id ?? null,
-          user_email: user?.email ?? null,
-        })
-        .select('id')
-        .single()
-
-      if (insHead.error) throw insHead.error
-      const predajkaId = insHead.data?.id
-      if (!predajkaId) throw new Error('Nepodarilo sa vytvoriť predajku')
-
-      // 2) položky: presný odpočet šarže + insert
-      for (const item of cart) {
-        const taken = item.zasoba_id
-          ? await deductExactBatch({ zasobaId: item.zasoba_id, qty: item.qty, canBuyExpired })
-          : await fefoDeduct({ produktId: item.produkt_id, skladId: item.sklad_id, qty: item.qty })
-
-        for (const t of taken) {
-          const partSum = round2(Number(item.cena_ks) * Number(t.mnozstvo))
-
-          const insItem = await supabase.from('predajky_polozky').insert({
-            predajka_id: predajkaId,
-            produkt_id: item.produkt_id,
-            sklad_id: item.sklad_id,
-            mnozstvo: t.mnozstvo,
-            cena_ks: item.cena_ks,
-            suma: partSum,
-            expiracia: t.expiracia,
-          })
-
-          if (insItem.error) throw insItem.error
-        }
-      }
+      await finishSale({
+        cart,
+        customerId: zid,
+        customerName: custName,
+        cartTotal,
+        currentDraftId,
+        canBuyExpired,
+      })
 
       if (currentDraftId) {
-        const delDraft = await supabase
-          .from('predajky_drafty')
-          .delete()
-          .eq('id', currentDraftId)
-
-        if (delDraft.error) throw delDraft.error
         setCurrentDraftId(null)
         setDraftName('')
         await loadDrafts()
         await loadReservations()
       }
 
-      // reset košíka a výberov
       setCart([])
       setProduktId('')
       setOverrideSkladId('')
       setSelectedBatchId('')
       setQtyInput('')
       setCenaKs('')
-      // zákazníka necháme vybraného (príjemné pri viacerých predajoch)
       setMsg(`Predajka uložená ✅ (Spolu ${cartTotal.toFixed(2)} €)`)
     } catch (e) {
       setMsg(e?.message ?? 'Chyba pri dokončení predajky')
