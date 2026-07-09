@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../services/supabase'
-import { formatExp, parseEur, round2, fmtEur, fmtShort, isExpired } from '../utils/predajUtils'
+import { formatExp, parseEur, round2, isExpired } from '../utils/predajUtils'
+import CustomerSection from '../components/predaj/CustomerSection'
+import ProductSection from '../components/predaj/ProductSection'
+import CartSection from '../components/predaj/CartSection'
 
 export default function Predaj() {
   const [produkty, setProdukty] = useState([])
@@ -730,358 +733,69 @@ export default function Predaj() {
 
       {msg && <div className="text-base border rounded-xl p-3 mb-3">{msg}</div>}
 
-      {/* ZÁKAZNÍK */}
-      <div className="space-y-2 mb-3">
-        <div>
-          <div className="text-sm font-semibold mb-1">Zákazník (karta) *</div>
-          <select
-            className="w-full border rounded-xl px-3 py-3 text-lg"
-            value={zakaznikId}
-            onChange={(e) => setZakaznikId(e.target.value)}
-          >
-            <option value="">— Vyber zákazníka —</option>
-            {zakaznici.map(z => (
-              <option key={z.id} value={z.id}>{z.nazov}</option>
-            ))}
-          </select>
+      <CustomerSection
+        zakaznici={zakaznici}
+        zakaznikId={zakaznikId}
+        setZakaznikId={setZakaznikId}
+        selectedCustomer={selectedCustomer}
+        loadZakaznici={loadZakaznici}
+        newCustOpen={newCustOpen}
+        setNewCustOpen={setNewCustOpen}
+        newNazov={newNazov}
+        setNewNazov={setNewNazov}
+        newTelefon={newTelefon}
+        setNewTelefon={setNewTelefon}
+        newEmail={newEmail}
+        setNewEmail={setNewEmail}
+        createCustomerQuick={createCustomerQuick}
+      />
 
-          {selectedCustomer?.moze_kupit_expir && (
-            <div className="text-xs border rounded-xl p-2 mt-2 bg-white">
-              ✅ Tento zákazník môže kúpiť aj ručne vybrané expirované šarže.
-            </div>
-          )}
-
-          <div className="flex items-center justify-between mt-2">
-            <button className="text-sm underline" onClick={loadZakaznici}>Obnoviť zákazníkov</button>
-            <button className="text-sm underline" onClick={() => setNewCustOpen(v => !v)}>
-              {newCustOpen ? 'Zrušiť' : '+ Nový zákazník'}
-            </button>
-          </div>
-
-          {newCustOpen && (
-            <div className="border rounded-xl p-3 mt-2 space-y-2">
-              <div className="text-sm font-semibold">Rýchlo pridať zákazníka</div>
-              <input
-                className="w-full border rounded-xl px-3 py-3 text-lg"
-                placeholder="Názov / Meno*"
-                value={newNazov}
-                onChange={(e) => setNewNazov(e.target.value)}
-              />
-              <input
-                className="w-full border rounded-xl px-3 py-3 text-lg"
-                placeholder="Telefón (voliteľné)"
-                value={newTelefon}
-                onChange={(e) => setNewTelefon(e.target.value)}
-              />
-              <input
-                className="w-full border rounded-xl px-3 py-3 text-lg"
-                placeholder="Email (voliteľné)"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-              />
-              <button className="w-full border rounded-xl py-3 text-lg font-semibold" onClick={createCustomerQuick}>
-                Uložiť zákazníka
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* VÝBER PRODUKTU */}
       <div className="space-y-3">
-        {/* A–Z */}
-        <div className="border rounded-xl p-3">
-          <div className="text-sm opacity-70 mb-2">Rýchly výber podľa písmena</div>
-          <div className="flex flex-wrap gap-1">
-            {letters.map(l => (
-              <button
-                key={l}
-                className={`px-2 py-1 rounded-lg text-sm font-semibold border ${
-                  letter === l ? 'bg-black text-white' : 'bg-white'
-                }`}
-                onClick={() => {
-                  setLetter(l)
-                  setProduktId('')
-                  setOverrideSkladId('')
-                  setSelectedBatchId('')
-                }}
-              >
-                {l}
-              </button>
-            ))}
-            <button
-              className="px-2 py-1 rounded-lg text-sm border"
-              onClick={() => {
-                setLetter('')
-                setProduktId('')
-                setOverrideSkladId('')
-                setSelectedBatchId('')
-              }}
-              title="Zrušiť písmeno"
-            >
-              ✕
-            </button>
-          </div>
+        <ProductSection
+          letters={letters}
+          letter={letter}
+          setLetter={setLetter}
+          qProd={qProd}
+          setQProd={setQProd}
+          produktId={produktId}
+          setProduktId={setProduktId}
+          filteredProdukty={filteredProdukty}
+          stockRows={stockRows}
+          overrideSkladId={overrideSkladId}
+          setOverrideSkladId={setOverrideSkladId}
+          selectedBatchId={selectedBatchId}
+          setSelectedBatchId={setSelectedBatchId}
+          skladSummary={skladSummary}
+          batchOptions={batchOptions}
+          selectedBatch={selectedBatch}
+          chosenSklad={chosenSklad}
+          cenaKs={cenaKs}
+          setCenaKs={setCenaKs}
+          qtyInput={qtyInput}
+          setQtyInput={setQtyInput}
+          addToCart={addToCart}
+        />
 
-          <input
-            className="w-full border rounded-xl px-3 py-2 mt-2"
-            placeholder="(voliteľné) hľadať produkt…"
-            value={qProd}
-            onChange={(e) => setQProd(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <div className="text-base font-semibold mb-1">Produkt</div>
-          <select
-            className="w-full border rounded-xl px-3 py-3 text-lg"
-            value={produktId}
-            onChange={(e) => {
-              setProduktId(e.target.value)
-              setOverrideSkladId('')
-              setSelectedBatchId('')
-            }}
-          >
-            <option value="">Vyber…</option>
-            {filteredProdukty.map(p => <option key={p.id} value={p.id}>{p.nazov}</option>)}
-          </select>
-        </div>
-
-        {/* ✅ SKLAD INFO PRVÝ */}
-        {produktId && stockRows.length > 0 && (
-          <div className="border rounded-xl p-3">
-            <div className="text-sm opacity-70">Sklad pre tento produkt</div>
-
-            <div className="mt-2">
-              <div className="text-sm font-semibold mb-1">
-                Sklad vyberá systém automaticky podľa najbližšej neexpirovanej EXP
-              </div>
-              <div className="text-xs opacity-60 mb-1">
-                Ručne zmeň iba vtedy, ak chceš predávať iba z konkrétneho skladu.
-              </div>
-              <select
-                className="w-full border rounded-xl px-3 py-2"
-                value={overrideSkladId}
-                onChange={(e) => {
-                  setOverrideSkladId(e.target.value)
-                  setSelectedBatchId('')
-                }}
-              >
-                <option value="">Automaticky: najbližší neexpirovaný EXP</option>
-                {skladSummary.map(s => (
-                  <option key={s.sklad_id} value={s.sklad_id}>
-                    {s.sklad_nazov} — {s.total} ks — najbližší EXP {s.nearestExp ? formatExp(s.nearestExp) : '—'}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="mt-3">
-              <div className="text-sm font-semibold mb-1">Vybrať šaržu / EXP</div>
-              <select
-                className="w-full border rounded-xl px-3 py-2"
-                value={selectedBatchId}
-                onChange={(e) => setSelectedBatchId(e.target.value)}
-              >
-                <option value="">Automaticky: najbližšia neexpirovaná šarža</option>
-                {batchOptions
-                  .filter(r => !overrideSkladId || Number(r.sklad_id) === Number(overrideSkladId))
-                  .map(r => (
-                    <option key={r.id} value={r.id}>
-                      {isExpired(r.expiracia) ? 'EXPIROVANÉ – ' : ''}
-                      {r.sklady?.nazov ?? `Sklad ${r.sklad_id}`} · EXP {r.expiracia ? formatExp(r.expiracia) : '—'} · {Number(r.mnozstvo) || 0} ks
-                    </option>
-                  ))}
-              </select>
-            </div>
-
-            {(selectedBatch || chosenSklad) && (
-              <div className="mt-3">
-                {selectedBatch ? (
-                  <>
-                    <div className="text-base font-semibold">
-                      {selectedBatch.sklady?.nazov ?? `Sklad ${selectedBatch.sklad_id}`} · EXP {formatExp(selectedBatch.expiracia)}
-                    </div>
-
-                    <div className="text-sm opacity-80 mt-1">
-                      Dostupné v šarži: <span className="font-semibold">{Number(selectedBatch.mnozstvo) || 0}</span> ks
-                    </div>
-
-                    <div className="text-sm opacity-80 mt-1">
-                      Nákupná cena (info): <span className="font-semibold">{fmtEur(selectedBatch.nakupna_cena)}</span>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="text-base font-semibold">{chosenSklad?.sklad_nazov ?? '—'}</div>
-
-                    <div className="text-sm opacity-80 mt-1">
-                      Dostupné: <span className="font-semibold">{chosenSklad?.total ?? 0}</span> ks · Najbližší použiteľný EXP:{' '}
-                      <span className="font-semibold">{chosenSklad?.nearestExp ? formatExp(chosenSklad.nearestExp) : '—'}</span>
-                    </div>
-
-                    <div className="text-sm opacity-80 mt-1">
-                      Nákupná cena (info):{' '}
-                      <span className="font-semibold">
-                        {chosenSklad?.minBuy === null || chosenSklad?.minBuy === undefined
-                          ? '—'
-                          : chosenSklad.minBuy === chosenSklad.maxBuy
-                            ? fmtEur(chosenSklad.minBuy)
-                            : `${fmtEur(chosenSklad.minBuy)} – ${fmtEur(chosenSklad.maxBuy)}`}
-                      </span>
-                      {chosenSklad?.nearestBuy !== null && chosenSklad?.nearestBuy !== undefined && (
-                        <>
-                          {' '}· Najbližšia šarža: <span className="font-semibold">{fmtEur(chosenSklad.nearestBuy)}</span> / ks
-                        </>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ✅ AŽ POTOM ZADANIE PREDAJNEJ CENY */}
-        <div>
-          <div className="text-sm font-semibold mb-1">Cena (€/ks)</div>
-          <input
-            inputMode="decimal"
-            className="w-full border rounded-xl px-3 py-3 text-lg"
-            placeholder="napr. 3,90"
-            value={cenaKs}
-            onChange={(e) => setCenaKs(e.target.value)}
-          />
-        </div>
-
-        {/* PRIDANIE DO KOŠÍKA */}
-        <div className="border rounded-xl p-3">
-          <div className="text-base font-semibold mb-2">Pridať do predajky</div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button className="border rounded-xl py-3 text-lg font-semibold" onClick={() => addToCart(1)}>+1</button>
-            <button className="border rounded-xl py-3 text-lg font-semibold" onClick={() => addToCart(5)}>+5</button>
-          </div>
-
-          <div className="flex gap-2 mt-2">
-            <input
-              inputMode="numeric"
-              className="flex-1 border rounded-xl px-3 py-3 text-lg"
-              placeholder="vlastné (ks)"
-              value={qtyInput}
-              onChange={(e) => setQtyInput(e.target.value.replace(/[^\d]/g, ''))}
-            />
-            <button className="border rounded-xl px-4 py-3 text-lg font-semibold" onClick={() => addToCart(qtyInput)}>
-              Pridať
-            </button>
-          </div>
-
-          <div className="text-xs opacity-60 mt-2">
-            Tip: Predajka = košík. Pridaj viac produktov a potom klikni „Dokončiť predaj".
-          </div>
-        </div>
-
-        {/* KOŠÍK */}
-        <div className="border rounded-xl p-3">
-          <div className="flex items-center justify-between">
-            <div className="text-base font-semibold">Predajka (košík)</div>
-            <div className="text-base font-semibold">Spolu: {cartTotal.toFixed(2)} €</div>
-          </div>
-
-          {currentDraftId && (
-            <div className="text-xs border rounded-xl p-2 mt-2 bg-white">
-              💾 Načítaná rozpracovaná predajka: <b>{draftName || `#${currentDraftId}`}</b>
-            </div>
-          )}
-
-          {cart.length === 0 ? (
-            <div className="text-sm opacity-70 mt-2">Zatiaľ prázdne.</div>
-          ) : (
-            <div className="space-y-2 mt-2">
-              {cart.map((i, idx) => (
-                <div key={idx} className="border rounded-xl p-3">
-                  <div className="text-lg font-bold">{i.produkt_nazov}</div>
-                  <div className="text-sm opacity-80">
-                    {i.sklad_nazov} · EXP {i.expiracia ? formatExp(i.expiracia) : '—'}
-                  </div>
-                  <div className="text-base mt-1">
-                    {i.qty} ks × {Number(i.cena_ks).toFixed(2)} € = <span className="font-semibold">{Number(i.suma).toFixed(2)} €</span>
-                  </div>
-                  <button className="text-sm underline mt-2" onClick={() => removeItem(idx)}>Odstrániť</button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="border rounded-xl p-3 mt-3 bg-white">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold">Rozpracované predajky</div>
-              <button className="text-sm underline" onClick={() => { setDraftOpen(v => !v); loadDrafts() }}>
-                {draftOpen ? 'Skryť' : `Zobraziť (${drafts.length})`}
-              </button>
-            </div>
-
-            <input
-              className="w-full border rounded-xl px-3 py-2 mt-2"
-              placeholder="Názov draftu (voliteľné)"
-              value={draftName}
-              onChange={(e) => setDraftName(e.target.value)}
-            />
-
-            <div className="grid grid-cols-2 gap-2 mt-2">
-              <button
-                className="border rounded-xl py-2 font-semibold"
-                onClick={saveDraft}
-                disabled={draftLoading || cart.length === 0}
-              >
-                {draftLoading ? 'Ukladám…' : '💾 Uložiť'}
-              </button>
-              <button
-                className="border rounded-xl py-2 font-semibold"
-                onClick={clearCurrentCart}
-                disabled={draftLoading || cart.length === 0}
-              >
-                🗑️ Vymazať košík
-              </button>
-            </div>
-
-            {draftOpen && (
-              <div className="mt-3 space-y-2">
-                {drafts.length === 0 ? (
-                  <div className="text-sm opacity-70">Žiadne rozpracované predajky.</div>
-                ) : (
-                  drafts.map(d => {
-                    const customer = zakaznici.find(z => Number(z.id) === Number(d.zakaznik_id))
-                    return (
-                      <div key={d.id} className="border rounded-xl p-3">
-                        <div className="font-semibold">{d.nazov || 'Bez názvu'}</div>
-                        <div className="text-sm opacity-70 mt-1">
-                          {customer?.nazov ?? '—'} · {d.itemsCount ?? 0} položiek · {fmtShort(d.updated_at || d.created_at)}
-                        </div>
-                        <div className="flex gap-3 mt-2">
-                          <button className="text-sm underline" onClick={() => loadDraft(d)} disabled={draftLoading}>
-                            Načítať
-                          </button>
-                          <button className="text-sm underline" onClick={() => deleteDraft(d.id)} disabled={draftLoading}>
-                            Vymazať
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            )}
-          </div>
-
-          <button
-            className="w-full border rounded-xl py-3 text-lg font-semibold mt-3"
-            onClick={dokonciPredajku}
-            disabled={loading}
-          >
-            {loading ? 'Ukladám…' : 'Dokončiť predaj'}
-          </button>
-        </div>
+        <CartSection
+          cart={cart}
+          cartTotal={cartTotal}
+          currentDraftId={currentDraftId}
+          draftName={draftName}
+          removeItem={removeItem}
+          dokonciPredajku={dokonciPredajku}
+          loading={loading}
+          drafts={drafts}
+          draftOpen={draftOpen}
+          setDraftOpen={setDraftOpen}
+          draftLoading={draftLoading}
+          setDraftName={setDraftName}
+          zakaznici={zakaznici}
+          loadDrafts={loadDrafts}
+          saveDraft={saveDraft}
+          clearCurrentCart={clearCurrentCart}
+          loadDraft={loadDraft}
+          deleteDraft={deleteDraft}
+        />
       </div>
     </div>
   )
