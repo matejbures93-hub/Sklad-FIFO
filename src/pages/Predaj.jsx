@@ -4,11 +4,14 @@ import { formatExp, parseEur, round2, isExpired } from '../utils/predajUtils'
 import CustomerSection from '../components/predaj/CustomerSection'
 import ProductSection from '../components/predaj/ProductSection'
 import CartSection from '../components/predaj/CartSection'
+import { getReservations } from '../services/reservations.service'
 import {
-  getReservations,
-  getReservationSummaryByDraftIds,
-  replaceReservationsForDraft,
-} from '../services/reservations.service'
+  deleteDraftById,
+  draftItemsToCart,
+  loadDraftItems,
+  loadDraftList,
+  saveDraftData,
+} from '../services/draftService'
 
 export default function Predaj() {
   const [produkty, setProdukty] = useState([])
@@ -67,39 +70,11 @@ export default function Predaj() {
   }
 
   const loadDrafts = async () => {
-    const d = await supabase
-      .from('predajky_drafty')
-      .select('id, created_at, updated_at, nazov, zakaznik_id, user_email')
-      .order('updated_at', { ascending: false })
-      .limit(30)
-
-    if (d.error) return setMsg(d.error.message)
-
-    const list = d.data ?? []
-    const ids = list.map(x => x.id)
-
-    if (ids.length === 0) {
-      setDrafts([])
-      return
+    try {
+      setDrafts(await loadDraftList())
+    } catch (e) {
+      setMsg(e?.message ?? 'Chyba pri načítaní rozpracovaných predajok')
     }
-
-    const items = await supabase
-      .from('predajky_draft_polozky')
-      .select('draft_id')
-      .in('draft_id', ids)
-
-    const reservedQty = await getReservationSummaryByDraftIds(ids)
-
-    const counts = new Map()
-    for (const it of items.data ?? []) {
-      counts.set(it.draft_id, (counts.get(it.draft_id) ?? 0) + 1)
-    }
-
-    setDrafts(list.map(x => ({
-      ...x,
-      itemsCount: counts.get(x.id) ?? 0,
-      reservedQty: reservedQty.get(x.id) ?? 0,
-    })))
   }
 
   const loadReservations = async () => {
@@ -315,75 +290,17 @@ export default function Predaj() {
     try {
       const { data: sess, error: sessErr } = await supabase.auth.getSession()
       if (sessErr) throw sessErr
-      const user = sess?.session?.user
 
       const name = draftName.trim() || defaultDraftName()
-      let draftId = currentDraftId
-
-      if (draftId) {
-        const upd = await supabase
-          .from('predajky_drafty')
-          .update({
-            nazov: name,
-            zakaznik_id: zid,
-            user_id: user?.id ?? null,
-            user_email: user?.email ?? null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', draftId)
-
-        if (upd.error) throw upd.error
-
-        const del = await supabase
-          .from('predajky_draft_polozky')
-          .delete()
-          .eq('draft_id', draftId)
-
-        if (del.error) throw del.error
-
-      } else {
-        const ins = await supabase
-          .from('predajky_drafty')
-          .insert({
-            nazov: name,
-            zakaznik_id: zid,
-            user_id: user?.id ?? null,
-            user_email: user?.email ?? null,
-          })
-          .select('id')
-          .single()
-
-        if (ins.error) throw ins.error
-        draftId = ins.data?.id
-        if (!draftId) throw new Error('Nepodarilo sa vytvoriť rozpracovanú predajku.')
-        setCurrentDraftId(draftId)
-      }
-
-      const rows = cart.map(item => ({
-        draft_id: draftId,
-        produkt_id: item.produkt_id,
-        produkt_nazov: item.produkt_nazov,
-        zasoba_id: item.zasoba_id ?? null,
-        sklad_id: item.sklad_id,
-        sklad_nazov: item.sklad_nazov,
-        mnozstvo: item.qty,
-        cena_ks: item.cena_ks,
-        suma: item.suma,
-        expiracia: item.expiracia ?? null,
-      }))
-
-      const insItems = await supabase
-        .from('predajky_draft_polozky')
-        .insert(rows)
-
-      if (insItems.error) throw insItems.error
-
-      await replaceReservationsForDraft({
-        draftId,
+      const draftId = await saveDraftData({
+        currentDraftId,
+        name,
+        zakaznikId: zid,
         cart,
-        user,
+        user: sess?.session?.user,
       })
 
+      setCurrentDraftId(draftId)
       setDraftName(name)
       await loadDrafts()
       await loadReservations()
@@ -400,26 +317,10 @@ export default function Predaj() {
     setMsg('')
     setDraftLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('predajky_draft_polozky')
-        .select('*')
-        .eq('draft_id', draft.id)
-        .order('id', { ascending: true })
-
-      if (error) throw error
+      const items = await loadDraftItems(draft.id)
 
       setZakaznikId(draft.zakaznik_id ? String(draft.zakaznik_id) : '')
-      setCart((data ?? []).map(it => ({
-        produkt_id: it.produkt_id,
-        produkt_nazov: it.produkt_nazov ?? '—',
-        zasoba_id: it.zasoba_id,
-        sklad_id: it.sklad_id,
-        sklad_nazov: it.sklad_nazov ?? '—',
-        expiracia: it.expiracia ?? null,
-        qty: Number(it.mnozstvo) || 0,
-        cena_ks: Number(it.cena_ks) || 0,
-        suma: Number(it.suma) || 0,
-      })))
+      setCart(draftItemsToCart(items))
       setProduktId('')
       setOverrideSkladId('')
       setSelectedBatchId('')
@@ -444,12 +345,7 @@ export default function Predaj() {
     setMsg('')
     setDraftLoading(true)
     try {
-      const { error } = await supabase
-        .from('predajky_drafty')
-        .delete()
-        .eq('id', draftId)
-
-      if (error) throw error
+      await deleteDraftById(draftId)
 
       if (Number(currentDraftId) === Number(draftId)) {
         setCurrentDraftId(null)
