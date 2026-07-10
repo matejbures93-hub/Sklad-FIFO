@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../services/supabase'
-import { formatExp, parseEur, round2, isExpired } from '../utils/predajUtils'
 import CustomerSection from '../components/predaj/CustomerSection'
 import ProductSection from '../components/predaj/ProductSection'
 import CartSection from '../components/predaj/CartSection'
@@ -21,9 +20,17 @@ import {
   getSelectedBatch,
   getSkladSummary,
   getStockForProduct,
-  pickAutoBatch,
 } from '../services/stockService'
 import { finishSale } from '../services/salesService'
+import {
+  canCustomerBuyExpired,
+  createCustomer,
+  findCustomerById,
+  loadCustomers,
+  sortCustomers,
+} from '../services/customerService'
+import { filterProducts, loadProducts } from '../services/productService'
+import { addItemToCart, clearCartState, getCartTotal, removeCartItem } from '../services/cartService'
 
 export default function Predaj() {
   const [produkty, setProdukty] = useState([])
@@ -71,15 +78,22 @@ export default function Predaj() {
 
   const loadProdukty = async () => {
     setMsg('')
-    const p = await supabase.from('produkty').select('id, nazov').order('nazov', { ascending: true })
-    if (p.error) return setMsg(p.error.message)
-    setProdukty(p.data ?? [])
+    try {
+      setProdukty(await loadProducts())
+    } catch (e) {
+      setMsg(e?.message ?? 'Chyba pri načítaní produktov')
+    }
   }
 
+
   const loadZakaznici = async () => {
-    const z = await supabase.from('zakaznici').select('id, nazov, moze_kupit_expir').order('nazov', { ascending: true })
-    if (!z.error) setZakaznici(z.data ?? [])
+    try {
+      setZakaznici(await loadCustomers())
+    } catch (e) {
+      setMsg(e?.message ?? 'Chyba pri načítaní zákazníkov')
+    }
   }
+
 
   const loadDrafts = async () => {
     try {
@@ -131,18 +145,10 @@ export default function Predaj() {
     [stockRows, reservedByZasoba]
   )
 
-  // produkty podľa písmena + hľadania
-  const filteredProdukty = useMemo(() => {
-    const pick = (letter || '').trim().toUpperCase()
-    const query = (qProd || '').trim().toLowerCase()
-
-    return (produkty ?? []).filter(p => {
-      const name = String(p.nazov ?? '')
-      if (pick && !name.toUpperCase().startsWith(pick)) return false
-      if (query && !name.toLowerCase().includes(query)) return false
-      return true
-    })
-  }, [produkty, letter, qProd])
+  const filteredProdukty = useMemo(
+    () => filterProducts(produkty, letter, qProd),
+    [produkty, letter, qProd]
+  )
 
   const batchOptions = useMemo(
     () => getBatchOptions(availableStockRows),
@@ -170,17 +176,16 @@ export default function Predaj() {
   )
 
   const cartTotal = useMemo(
-    () => round2(cart.reduce((sum, i) => sum + (Number(i.suma) || 0), 0)),
+    () => getCartTotal(cart),
     [cart]
   )
 
-  const selectedCustomer = useMemo(() => {
-    const id = Number(zakaznikId)
-    if (!id) return null
-    return zakaznici.find(z => Number(z.id) === id) ?? null
-  }, [zakaznikId, zakaznici])
+  const selectedCustomer = useMemo(
+    () => findCustomerById(zakaznici, zakaznikId),
+    [zakaznikId, zakaznici]
+  )
 
-  const canBuyExpired = !!selectedCustomer?.moze_kupit_expir
+  const canBuyExpired = canCustomerBuyExpired(selectedCustomer)
 
   const defaultDraftName = () => {
     const name = selectedCustomer?.nazov || 'Rozpracovaná predajka'
@@ -276,141 +281,59 @@ export default function Predaj() {
     const ok = window.confirm('Vymazať aktuálny košík?')
     if (!ok) return
 
-    setCart([])
-    setProduktId('')
-    setOverrideSkladId('')
-    setSelectedBatchId('')
-    setQtyInput('')
-    setCenaKs('')
-    setCurrentDraftId(null)
-    setDraftName('')
+    const cleared = clearCartState()
+    setCart(cleared.cart)
+    setProduktId(cleared.produktId)
+    setOverrideSkladId(cleared.overrideSkladId)
+    setSelectedBatchId(cleared.selectedBatchId)
+    setQtyInput(cleared.qtyInput)
+    setCenaKs(cleared.cenaKs)
+    setCurrentDraftId(cleared.currentDraftId)
+    setDraftName(cleared.draftName)
     setMsg('Košík vymazaný ✅')
   }
+
 
   const addToCart = (qty) => {
     setMsg('')
 
-    const pid = Number(produktId)
-    const q = Number(qty)
-    const price = parseEur(cenaKs)
-
-    // ✅ povinný zákazník (verzia A)
-    const zid = Number(zakaznikId)
-    if (!zid) return setMsg('Vyber zákazníka (karta)')
-
-    if (!pid) return setMsg('Vyber produkt')
-    if (!q || q <= 0) return setMsg('Zadaj množstvo')
-    if (!price || price <= 0) return setMsg('Zadaj cenu (€/ks)')
-
-    let batch = selectedBatch ?? pickAutoBatch(batchOptions, q)
-
-    // Ak je ručne vybraný sklad, automatická šarža sa vyberie iba z toho skladu.
-    if (!selectedBatch && overrideSkladId) {
-      const sid = Number(overrideSkladId)
-      const goodInSklad = batchOptions.filter(r => Number(r.sklad_id) === sid && !isExpired(r.expiracia))
-      batch = goodInSklad.find(r => (Number(r.mnozstvo) || 0) >= q) ?? goodInSklad[0] ?? null
-    }
-
-    if (!batch?.id) return setMsg('Nie je dostupná neexpirovaná šarža pre tento produkt.')
-
-    const manuallySelectedExpired = selectedBatch && isExpired(selectedBatch.expiracia)
-
-    // automatika nesmie brať expirované
-    if (!manuallySelectedExpired && isExpired(batch.expiracia)) {
-      return setMsg('Automatický predaj nepovoľuje expirované šarže')
-    }
-
-    // ručný predaj expirovaných šarží je povolený iba vybraným zákazníkom
-    if (manuallySelectedExpired && !canBuyExpired) {
-      return setMsg('Expirované šarže môžeš predať iba zákazníkovi s povolením EXP, napr. Matej alebo Ingrid.')
-    }
-
-    const available = Number(batch.mnozstvo) || 0
-    const batchSkladName = batch.sklady?.nazov ?? `Sklad ${batch.sklad_id}`
-
-    if (available < q) {
-      return setMsg(
-        `V tejto šarži je dostupné iba ${available} ks (${batchSkladName}, EXP ${formatExp(batch.expiracia)}).`
-      )
-    }
-
-    const produktNazov = produkty.find(p => Number(p.id) === pid)?.nazov ?? '—'
-    const suma = round2(price * q)
-
-    setCart(prev => {
-      const idx = prev.findIndex(i =>
-        i.produkt_id === pid &&
-        i.zasoba_id === batch.id &&
-        Number(i.cena_ks) === Number(price)
-      )
-
-      if (idx >= 0) {
-        const next = [...prev]
-        const newQty = Number(next[idx].qty) + q
-
-        if (newQty > available) {
-          setMsg(
-            `V tejto šarži je dostupné iba ${available} ks (${batchSkladName}, EXP ${formatExp(batch.expiracia)}).`
-          )
-          return prev
-        }
-
-        next[idx] = {
-          ...next[idx],
-          qty: newQty,
-          suma: round2(Number(next[idx].cena_ks) * newQty),
-        }
-        return next
-      }
-
-      return [
-        ...prev,
-        {
-          produkt_id: pid,
-          produkt_nazov: produktNazov,
-          zasoba_id: batch.id,
-          sklad_id: batch.sklad_id,
-          sklad_nazov: batchSkladName,
-          expiracia: batch.expiracia ?? null,
-          qty: q,
-          cena_ks: price,
-          suma,
-        },
-      ]
+    const result = addItemToCart({
+      cart,
+      qty,
+      produktId,
+      zakaznikId,
+      cenaKs,
+      selectedBatch,
+      batchOptions,
+      overrideSkladId,
+      canBuyExpired,
+      products: produkty,
+      setMsg,
     })
 
+    if (!result.added) return
+
+    setCart(result.cart)
     setQtyInput('')
     setMsg('Pridané do predajky ✅')
   }
 
+
   const removeItem = (index) => {
-    setCart(prev => prev.filter((_, i) => i !== index))
+    setCart(prev => removeCartItem(prev, index))
   }
 
   const createCustomerQuick = async () => {
     setMsg('')
-    if (!newNazov.trim()) return setMsg('Zadaj názov zákazníka')
 
     try {
-      const ins = await supabase
-        .from('zakaznici')
-        .insert({
-          nazov: newNazov.trim(),
-          telefon: newTelefon.trim() || null,
-          email: newEmail.trim() || null,
-        })
-        .select('id, nazov, moze_kupit_expir')
-        .single()
-
-      if (ins.error) throw ins.error
-
-      const created = ins.data
-      setZakaznici(prev => {
-        const next = [...(prev ?? []), created]
-        next.sort((a, b) => (a.nazov ?? '').localeCompare(b.nazov ?? ''))
-        return next
+      const created = await createCustomer({
+        nazov: newNazov,
+        telefon: newTelefon,
+        email: newEmail,
       })
 
+      setZakaznici(prev => sortCustomers([...(prev ?? []), created]))
       setZakaznikId(String(created.id))
       setNewCustOpen(false)
       setNewNazov('')
@@ -421,6 +344,7 @@ export default function Predaj() {
       setMsg(e?.message ?? 'Chyba pri ukladaní zákazníka')
     }
   }
+
 
   const dokonciPredajku = async () => {
     setMsg('')
