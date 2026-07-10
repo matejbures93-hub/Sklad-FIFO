@@ -10,35 +10,6 @@ import Historia from '../pages/Historia.jsx'
 import Sklad from '../pages/Sklad.jsx'
 import Dashboard from '../pages/Dashboard.jsx'
 import UpdatePrompt from '../components/UpdatePrompt'
-
-function AuthedLayout() {
-  return (
-    <div>
-      <TopMenu />
-      <UpdatePrompt />
-      {/* obsah: na mobile odsadenie zhora kvôli hamburgeru,
-         na desktope odsadenie zľava kvôli ľavému menu */}
-      <div className="pt-16 lg:pt-0 lg:ml-64">
-        <Outlet />
-      </div>
-    </div>
-  )
-}
-
-export default function App() {
-  return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-
-      <Route element={<RequireAuth><AuthedLayout /></RequireAuth>}>
-        <Route path="/" element={<Predaj />} />
-        <Route path="/zakaznici" element={<Zakaznici />} />
-        <Route path="/produkty" element={<Produkty />} />
-        <Route path="/naskladnit" element={<Naskladnit />} />
-        <Route path="/historia" element={<Historia />} />
-        <Route path="/sklad" element={<Sklad />} />
-        <Route path="dashboard" element={<Dashboard />} />
-      </Route>
-    </Routes>
-  )
-}
+import Spotreba from '../modules/spotreba/pages/Spotreba.jsx'
+function AuthedLayout(){return <div><TopMenu/><UpdatePrompt/><div className='pt-16 lg:pt-0 lg:ml-64'><Outlet/></div></div>}
+export default function App(){return <Routes><Route path='/login' element={<Login/>}/><Route element={<RequireAuth><AuthedLayout/></RequireAuth>}><Route path='/' element={<Predaj/>}/><Route path='/spotreba' element={<Spotreba/>}/><Route path='/zakaznici' element={<Zakaznici/>}/><Route path='/produkty' element={<Produkty/>}/><Route path='/naskladnit' element={<Naskladnit/>}/><Route path='/historia' element={<Historia/>}/><Route path='/sklad' element={<Sklad/>}/><Route path='/dashboard' element={<Dashboard/>}/></Route></Routes>}

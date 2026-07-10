@@ -5,6 +5,20 @@ Všetky významné zmeny projektu sa zapisujú sem.
 Formát vychádza z princípu *Keep a Changelog*.
 
 ------------------------------------------------------------------------
+## v0.9.0
+
+### 🚀 Veľký refactoring modulu Predaj
+
+- Predaj rozdelený na komponenty
+- Zavedené React Hooks
+- Zavedené Service Layer
+- Zavedené Utils
+- Rezervácie presunuté do samostatnej služby
+- Drafty presunuté do samostatnej služby
+- Skladová logika oddelená
+- Predaj oddelený do salesService
+- Predaj.jsx zmenšený z ~1000 na ~140 riadkov
+
 
 ## [v1.0.4] - 2026-07-09
 
